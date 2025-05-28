@@ -1,5 +1,5 @@
 import type { OpenAPIV3 } from 'openapi-types'
-import type { ReferenceConfiguration } from '@scalar/types'
+import type { ApiReferenceConfiguration } from '@scalar/types'
 import type { SwaggerUIOptions } from './swagger/types'
 
 export interface ElysiaSwaggerConfig<Path extends string = '/swagger'> {
@@ -46,7 +46,7 @@ export interface ElysiaSwaggerConfig<Path extends string = '/swagger'> {
 	 *'
 	 * @see https://github.com/scalar/scalar/blob/main/documentation/configuration.md
 	 */
-	scalarConfig?: ReferenceConfiguration
+	scalarConfig?: Partial<ApiReferenceConfiguration>
 	/**
 	 * Version to use for swagger cdn bundle
 	 *
