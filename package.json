@@ -1,76 +1,76 @@
 {
-    "name": "@elysiajs/swagger",
-    "version": "1.3.0",
-    "description": "Plugin for Elysia to auto-generate Swagger page",
-    "author": {
-        "name": "saltyAom",
-        "url": "https://github.com/SaltyAom",
-        "email": "saltyaom@gmail.com"
-    },
-    "main": "./dist/cjs/index.js",
-    "module": "./dist/index.mjs",
-    "types": "./dist/index.d.ts",
-    "exports": {
-        "./package.json": "./package.json",
-        ".": {
-            "types": "./dist/index.d.ts",
-            "import": "./dist/index.mjs",
-            "require": "./dist/cjs/index.js"
-        },
-        "./types": {
-            "types": "./dist/types.d.ts",
-            "import": "./dist/types.mjs",
-            "require": "./dist/cjs/types.js"
-        },
-        "./utils": {
-            "types": "./dist/utils.d.ts",
-            "import": "./dist/utils.mjs",
-            "require": "./dist/cjs/utils.js"
-        },
-        "./scalar": {
-            "types": "./dist/scalar/index.d.ts",
-            "import": "./dist/scalar/index.mjs",
-            "require": "./dist/cjs/scalar/index.js"
-        },
-        "./scalar/theme": {
-            "types": "./dist/scalar/theme.d.ts",
-            "import": "./dist/scalar/theme.mjs",
-            "require": "./dist/cjs/scalar/theme.js"
-        }
-    },
-    "keywords": [
-        "elysia",
-        "swagger"
-    ],
-    "homepage": "https://github.com/elysiajs/elysia-swagger",
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/elysiajs/elysia-swagger"
-    },
-    "bugs": "https://github.com/elysiajs/elysia-swagger/issues",
-    "license": "MIT",
-    "scripts": {
-        "dev": "bun run --watch example/index.ts",
-        "test": "bun test && npm run test:node",
-        "test:node": "npm install --prefix ./test/node/cjs/ && npm install --prefix ./test/node/esm/ && node ./test/node/cjs/index.js && node ./test/node/esm/index.js",
-        "build": "bun build.ts",
-        "release": "npm run build && npm run test && npm publish --access public"
-    },
-    "peerDependencies": {
-        "elysia": ">= 1.3.0"
-    },
-    "devDependencies": {
-        "@apidevtools/swagger-parser": "^10.1.0",
-        "@types/bun": "1.1.14",
-        "elysia": "1.3.0-exp.71",
-        "eslint": "9.6.0",
-        "tsup": "^8.1.0",
-        "typescript": "^5.5.3"
-    },
-    "dependencies": {
-        "@scalar/themes": "^0.9.52",
-        "@scalar/types": "^0.0.12",
-        "openapi-types": "^12.1.3",
-        "pathe": "^1.1.2"
-    }
+	"name": "@elysiajs/swagger",
+	"version": "1.3.0",
+	"description": "Plugin for Elysia to auto-generate Swagger page",
+	"author": {
+		"name": "saltyAom",
+		"url": "https://github.com/SaltyAom",
+		"email": "saltyaom@gmail.com"
+	},
+	"main": "./dist/cjs/index.js",
+	"module": "./dist/index.mjs",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		"./package.json": "./package.json",
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.mjs",
+			"require": "./dist/cjs/index.js"
+		},
+		"./types": {
+			"types": "./dist/types.d.ts",
+			"import": "./dist/types.mjs",
+			"require": "./dist/cjs/types.js"
+		},
+		"./utils": {
+			"types": "./dist/utils.d.ts",
+			"import": "./dist/utils.mjs",
+			"require": "./dist/cjs/utils.js"
+		},
+		"./scalar": {
+			"types": "./dist/scalar/index.d.ts",
+			"import": "./dist/scalar/index.mjs",
+			"require": "./dist/cjs/scalar/index.js"
+		},
+		"./scalar/theme": {
+			"types": "./dist/scalar/theme.d.ts",
+			"import": "./dist/scalar/theme.mjs",
+			"require": "./dist/cjs/scalar/theme.js"
+		}
+	},
+	"keywords": [
+		"elysia",
+		"swagger"
+	],
+	"homepage": "https://github.com/elysiajs/elysia-swagger",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/elysiajs/elysia-swagger"
+	},
+	"bugs": "https://github.com/elysiajs/elysia-swagger/issues",
+	"license": "MIT",
+	"scripts": {
+		"dev": "bun run --watch example/index.ts",
+		"test": "bun test && npm run test:node",
+		"test:node": "npm install --prefix ./test/node/cjs/ && npm install --prefix ./test/node/esm/ && node ./test/node/cjs/index.js && node ./test/node/esm/index.js",
+		"build": "bun build.ts",
+		"release": "npm run build && npm run test && npm publish --access public"
+	},
+	"peerDependencies": {
+		"elysia": ">= 1.3.0"
+	},
+	"devDependencies": {
+		"@apidevtools/swagger-parser": "^10.1.1",
+		"@types/bun": "1.2.14",
+		"elysia": "1.3.3",
+		"eslint": "9.27.0",
+		"tsup": "^8.5.0",
+		"typescript": "^5.8.3"
+	},
+	"dependencies": {
+		"@scalar/themes": "^0.12.1",
+		"@scalar/types": "^0.2.1",
+		"openapi-types": "^12.1.3",
+		"pathe": "^2.0.2"
+	}
 }

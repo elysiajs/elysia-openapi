@@ -7,7 +7,7 @@ import { ScalarRender } from './scalar'
 import { filterPaths, registerSchemaPath } from './utils'
 
 import type { OpenAPIV3 } from 'openapi-types'
-import type { ReferenceConfiguration } from '@scalar/types'
+import type { ApiReferenceConfiguration } from '@scalar/types'
 import type { ElysiaSwaggerConfig } from './types'
 
 /**
@@ -21,7 +21,7 @@ export const swagger = <Path extends string = '/swagger'>({
 	scalarCDN = '',
 	scalarConfig = {},
 	documentation = {},
-	version = '5.9.0',
+	version = '5.22.0',
 	excludeStaticFile = true,
 	path = '/swagger' as Path,
 	specPath = `${path}/json`,
@@ -35,17 +35,12 @@ export const swagger = <Path extends string = '/swagger'>({
 	const schema = {}
 	let totalRoutes = 0
 
-	if (!version)
-		version = `https://unpkg.com/swagger-ui-dist@${version}/swagger-ui.css`
-
 	const info = {
 		title: 'Elysia Documentation',
 		description: 'Development documentation',
 		version: '0.0.0',
 		...documentation.info
 	}
-
-	const relativePath = path.startsWith('/') ? path.slice(1) : path
 
 	const app = new Elysia({ name: '@elysiajs/swagger' })
 
@@ -65,22 +60,18 @@ export const swagger = <Path extends string = '/swagger'>({
 							typeof value === 'function' ? undefined : value
 					),
 					autoDarkMode
-				)
+			  )
 			: ScalarRender(
 					info,
 					scalarVersion,
 					{
-						spec: {
-							...scalarConfig.spec,
-							url: specPath
-						},
 						...scalarConfig,
+						url: specPath,
 						// so we can showcase the elysia theme
-						// @ts-expect-error
 						_integration: 'elysiajs'
-					} satisfies ReferenceConfiguration,
+					} satisfies Partial<ApiReferenceConfiguration>,
 					scalarCDN
-				),
+			  ),
 		{
 			headers: {
 				'content-type': 'text/html; charset=utf8'
