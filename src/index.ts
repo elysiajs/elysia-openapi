@@ -146,6 +146,15 @@ export const swagger = <Path extends string = '/swagger'>({
 				})
 			}
 
+			// @ts-ignore
+			const globalDefinitions = { ...app.getGlobalDefinitions?.().type }
+			// remove $id from globalDefinitions as it breaks OpenAPI compliance
+			Object.entries(globalDefinitions).map(([key, value]) => {
+				if (value.$id) {
+					delete globalDefinitions[key].$id
+				}
+			})
+
 			return {
 				openapi: '3.0.3',
 				...{
