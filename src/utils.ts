@@ -353,7 +353,14 @@ export const registerSchemaPath = ({
 							required: true,
 							content: mapTypesResponse(
 								contentTypes,
-								typeof bodySchema === 'string'
+								typeof bodySchema === 'string' && bodySchema.slice(-2) === '[]'
+									? {
+										type: 'array',
+										items: {
+											$ref: `#/components/schemas/${bodySchema.slice(0, -2)}`
+										}
+									}
+								: typeof bodySchema === 'string'
 									? {
 											$ref: `#/components/schemas/${bodySchema}`
 										}
