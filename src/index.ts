@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import { Elysia, type InternalRoute } from 'elysia'
+import { Elysia, TSchema, type InternalRoute } from 'elysia'
 
 import { SwaggerUIRender } from './swagger'
 import { ScalarRender } from './scalar'
@@ -130,7 +130,8 @@ export const swagger = <Path extends string = '/swagger'>({
 								path: route.path,
 								// @ts-ignore
 								models: app.getGlobalDefinitions?.().type,
-								contentType: route.hooks.type
+								contentType: route.hooks.type,
+								standaloneValidators: route.standaloneValidators
 							})
 						})
 					else
@@ -141,7 +142,8 @@ export const swagger = <Path extends string = '/swagger'>({
 							path: route.path,
 							// @ts-ignore
 							models: app.getGlobalDefinitions?.().type,
-							contentType: route.hooks.type
+							contentType: route.hooks.type,
+							standaloneValidators: route.standaloneValidators
 						})
 				})
 			}

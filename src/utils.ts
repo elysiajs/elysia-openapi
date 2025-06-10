@@ -1,7 +1,13 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { normalize } from 'pathe'
-import { replaceSchemaType, t, type HTTPMethod, type LocalHook } from 'elysia'
+import {
+	InputSchema,
+	replaceSchemaType,
+	t,
+	type HTTPMethod,
+	type LocalHook
+} from 'elysia'
 
 import { Kind, type TSchema } from '@sinclair/typebox'
 import type { OpenAPIV3 } from 'openapi-types'
@@ -128,6 +134,43 @@ export const generateOperationId = (method: string, paths: string) => {
 	return operationId
 }
 
+function resolveModel(
+	model: TSchema | string | undefined,
+	models: Record<string, TSchema>
+) {
+	if (typeof model === 'object') return model
+	// this intentionally doesn't include the 'modelname[]' check
+	// because it doesn't make sense to merge t.Array using t.Composite
+	if (typeof model === 'string') return models[model]
+	return undefined
+}
+
+function compositeStandalone(
+	hook: InputSchema,
+	validators: InputSchema[] | undefined,
+	models: Record<string, TSchema>
+) {
+	if (!validators) return hook
+	if (validators.length === 0) return hook
+
+	const mergeProp = (prop: keyof Omit<InputSchema, 'response'>) => {
+		const array = [hook[prop], ...validators.map((x) => x[prop])]
+			.map((x) => resolveModel(x, models))
+			.filter((x) => x !== undefined)
+		if (array.length === 0) return undefined
+		if (array.length === 1) return array[0]
+		return t.Composite(array)
+	}
+
+	return {
+		...hook,
+		body: mergeProp('body'),
+		params: mergeProp('params'),
+		headers: mergeProp('headers'),
+		query: mergeProp('query')
+	}
+}
+
 const cloneHook = <T>(hook: T) => {
 	if (!hook) return
 	if (typeof hook === 'string') return hook
@@ -140,7 +183,8 @@ export const registerSchemaPath = ({
 	path,
 	method,
 	hook,
-	models
+	models,
+	standaloneValidators
 }: {
 	schema: Partial<OpenAPIV3.PathsObject>
 	contentType?: string | string[]
@@ -148,8 +192,10 @@ export const registerSchemaPath = ({
 	method: HTTPMethod
 	hook?: LocalHook<any, any, any, any, any, any>
 	models: Record<string, TSchema>
+	standaloneValidators?: InputSchema[]
 }) => {
 	hook = cloneHook(hook)
+	hook = compositeStandalone(hook, standaloneValidators, models)
 
 	if (hook.parse && !Array.isArray(hook.parse)) hook.parse = [hook.parse]
 
@@ -216,6 +262,7 @@ export const registerSchemaPath = ({
 				additionalProperties,
 				patternProperties,
 				$ref,
+				items,
 				...rest
 			} = responseSchema as typeof responseSchema & {
 				type: string
@@ -234,7 +281,7 @@ export const registerSchemaPath = ({
 									type,
 									properties,
 									patternProperties,
-									items: responseSchema.items,
+									items,
 									required
 								} as any)
 							: responseSchema

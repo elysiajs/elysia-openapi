@@ -16,15 +16,28 @@ it('returns a valid Swagger/OpenAPI json config for many routes', async () => {
         .get('/unpath/:id', ({ params: { id } }) => id, {
             response: t.String({ description: 'sample description' })
         })
+        .model({
+            thing: t.Object({
+                bar: t.String()
+            })
+        })
         .get(
             '/unpath/:id/:name/:age',
             ({ params: { id, name } }) => `${id} ${name}`,
             {
                 type: 'json',
                 response: t.String({ description: 'sample description' }),
-                params: t.Object({ id: t.String(), name: t.String() })
+                params: t.Object({ id: t.String(), name: t.String() }),
+                body: "thing[]"
             }
         )
+        .guard({
+            schema: "standalone",
+            body: t.Object({
+                foo: t.String()
+            }),
+            query: "thing"
+        })
         .post(
             '/json/:id',
             ({ body, params: { id }, query: { name, email, birthday } }) => ({
