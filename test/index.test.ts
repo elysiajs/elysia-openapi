@@ -321,6 +321,7 @@ describe('Swagger', () => {
 						{ id: t.Number() },
 						{ description: 'User ID' }
 					),
+					parse: 'application/json',
 					response: {
 						200: 'UserResponse',
 						404: 'ErrorResponse'
