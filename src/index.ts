@@ -146,6 +146,15 @@ export const swagger = <Path extends string = '/swagger'>({
 				})
 			}
 
+			// @ts-expect-error Private property
+			const globalDefinitions = app.getGlobalDefinitions?.().type as const
+
+			const globalSchemas: Record<string, OpenAPIV3.SchemaObject> = {}
+			for (const [key, value] of Object.entries(globalDefinitions)) {
+				const { $id: _1, ...schemaFields } = value
+				globalSchemas[key] = schemaFields
+			}
+
 			return {
 				openapi: '3.0.3',
 				...{
@@ -171,7 +180,7 @@ export const swagger = <Path extends string = '/swagger'>({
 					...documentation.components,
 					schemas: {
 						// @ts-ignore
-						...app.getGlobalDefinitions?.().type,
+						...globalSchemas,
 						...documentation.components?.schemas
 					}
 				}

@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { normalize } from 'pathe'
 import { replaceSchemaType, t, type HTTPMethod, type LocalHook } from 'elysia'
 
 import { Kind, type TSchema } from '@sinclair/typebox'
@@ -70,39 +69,49 @@ const mapTypesResponse = (
 	const responses: Record<string, OpenAPIV3.MediaTypeObject> = {}
 
 	for (const type of types) {
-		responses[type] = {
-			schema:
-				typeof schema === 'string'
-					? {
-							$ref: `#/components/schemas/${schema}`
-						}
-					: '$ref' in schema &&
-						  Kind in schema &&
-						  schema[Kind] === 'Ref'
-						? {
-								...schema,
-								$ref: `#/components/schemas/${schema.$ref}`
-							}
-						: replaceSchemaType(
-								{ ...(schema as any) },
-								{
-									from: t.Ref(''),
-									// @ts-expect-error
-									to: ({ $ref, ...options }) => {
-										if (
-											!$ref.startsWith(
-												'#/components/schemas/'
-											)
-										)
-											return t.Ref(
-												`#/components/schemas/${$ref}`,
-												options
-											)
-
-										return t.Ref($ref, options)
-									}
-								}
+		if (typeof schema === 'string' && schema.slice(-2) === '[]') {
+			responses[type] = {
+				schema: {
+					type: 'array',
+					items: {
+						$ref: `#/components/schemas/${schema.slice(0, -2)}`
+					}
+				}
+			}
+		} else if (typeof schema === 'string') {
+			responses[type] = {
+				schema: {
+					$ref: `#/components/schemas/${schema}`
+				}
+			}
+		} else if (
+			'$ref' in schema &&
+			Kind in schema &&
+			schema[Kind] === 'Ref'
+		) {
+			responses[type] = {
+				schema: {
+					...schema,
+					$ref: `#/components/schemas/${schema.$ref}`
+				}
+			}
+		} else {
+			replaceSchemaType(
+				{ ...(schema as any) },
+				{
+					from: t.Ref(''),
+					// @ts-expect-error
+					to: ({ $ref, ...options }) => {
+						if (!$ref.startsWith('#/components/schemas/'))
+							return t.Ref(
+								`#/components/schemas/${$ref}`,
+								options
 							)
+
+						return t.Ref($ref, options)
+					}
+				}
+			)
 		}
 	}
 
@@ -245,7 +254,24 @@ export const registerSchemaPath = ({
 			Object.entries(responseSchema as Record<string, TSchema>).forEach(
 				([key, value]) => {
 					if (typeof value === 'string') {
-						if (!models[value]) return
+						const valueAsStr = value as string
+						const isArray = valueAsStr.endsWith('[]')
+						const modelName = isArray
+							? valueAsStr.slice(0, -2)
+							: valueAsStr
+
+						if (!models[modelName]) return
+
+						if (isArray) {
+							responseSchema[key] = {
+								content: mapTypesResponse(
+									contentTypes,
+									valueAsStr
+								),
+								description: `Array of ${modelName}`
+							}
+							return
+						}
 
 						// eslint-disable-next-line @typescript-eslint/no-unused-vars
 						const {
@@ -254,6 +280,7 @@ export const registerSchemaPath = ({
 							required,
 							additionalProperties: _1,
 							patternProperties: _2,
+							$id: _3,
 							...rest
 						} = models[value] as TSchema & {
 							type: string
@@ -273,6 +300,7 @@ export const registerSchemaPath = ({
 							required,
 							additionalProperties,
 							patternProperties,
+							$id: _1,
 							...rest
 						} = value as typeof value & {
 							type: string
