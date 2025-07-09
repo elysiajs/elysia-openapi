@@ -5,7 +5,7 @@ const schema = t.Object({
 	test: t.Literal('hello')
 })
 
-const app = new Elysia()
+const app = new Elysia({ prefix: '/api' })
 	.use(
 		swagger({
 			provider: 'scalar',
@@ -52,7 +52,7 @@ const app = new Elysia()
 		}
 	)
 	.post('/json', ({ body }) => body, {
-		parse: 'formdata',
+		parse: ['json', 'formdata'],
 		body: 'schema',
 		response: 'schema'
 	})

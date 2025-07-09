@@ -1,3 +1,7 @@
+# 1.3.1
+Bug fix:
+- Using relative path for specPath
+
 # 1.3.0-exp.1 - 1 May 2025
 Improvement:
 - use static response for documentation page

@@ -45,7 +45,7 @@ export const swagger = <Path extends string = '/swagger'>({
 		...documentation.info
 	}
 
-	const relativePath = path.startsWith('/') ? path.slice(1) : path
+	const relativePath = specPath.startsWith('/') ? specPath.slice(1) : specPath
 
 	const app = new Elysia({ name: '@elysiajs/swagger' })
 
@@ -57,7 +57,7 @@ export const swagger = <Path extends string = '/swagger'>({
 					theme,
 					JSON.stringify(
 						{
-							url: specPath,
+							url: relativePath,
 							dom_id: '#swagger-ui',
 							...swaggerOptions
 						},
@@ -71,8 +71,8 @@ export const swagger = <Path extends string = '/swagger'>({
 					scalarVersion,
 					{
 						spec: {
-							...scalarConfig.spec,
-							url: specPath
+							url: relativePath,
+							...scalarConfig.spec
 						},
 						...scalarConfig,
 						// so we can showcase the elysia theme
