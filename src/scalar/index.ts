@@ -1,6 +1,6 @@
 import { elysiajsTheme } from '@scalar/themes'
-import type { OpenAPIV3 } from 'openapi-types'
 import type { ReferenceConfiguration } from '@scalar/types'
+import type { OpenAPIV3 } from 'openapi-types'
 
 export const ScalarRender = (
     info: OpenAPIV3.InfoObject,
@@ -29,7 +29,7 @@ export const ScalarRender = (
       }
     </style>
     <style>
-      ${config.customCss ?? elysiajsTheme}
+      ${config.customCss || config.theme ? config.customCss : elysiajsTheme}
     </style>
   </head>
   <body>
