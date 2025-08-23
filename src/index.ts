@@ -49,46 +49,48 @@ export const swagger = <Path extends string = '/swagger'>({
 
 	const app = new Elysia({ name: '@elysiajs/swagger' })
 
-	const page = new Response(
-		provider === 'swagger-ui'
-			? SwaggerUIRender(
-					info,
-					version,
-					theme,
-					JSON.stringify(
+	app.get(path, () => {
+		const page = new Response(
+			provider === 'swagger-ui'
+				? SwaggerUIRender(
+						info,
+						version,
+						theme,
+						JSON.stringify(
+							{
+								url: relativePath,
+								dom_id: '#swagger-ui',
+								...swaggerOptions
+							},
+							(_, value) =>
+								typeof value === 'function' ? undefined : value
+						),
+						autoDarkMode
+					)
+				: ScalarRender(
+						info,
+						scalarVersion,
 						{
-							url: relativePath,
-							dom_id: '#swagger-ui',
-							...swaggerOptions
-						},
-						(_, value) =>
-							typeof value === 'function' ? undefined : value
+							spec: {
+								url: relativePath,
+								...scalarConfig.spec
+							},
+							...scalarConfig,
+							// so we can showcase the elysia theme
+							// @ts-expect-error
+							_integration: 'elysiajs'
+						} satisfies ReferenceConfiguration,
+						scalarCDN
 					),
-					autoDarkMode
-				)
-			: ScalarRender(
-					info,
-					scalarVersion,
-					{
-						spec: {
-							url: relativePath,
-							...scalarConfig.spec
-						},
-						...scalarConfig,
-						// so we can showcase the elysia theme
-						// @ts-expect-error
-						_integration: 'elysiajs'
-					} satisfies ReferenceConfiguration,
-					scalarCDN
-				),
-		{
-			headers: {
-				'content-type': 'text/html; charset=utf8'
+			{
+				headers: {
+					'content-type': 'text/html; charset=utf8'
+				}
 			}
-		}
-	)
+		)
 
-	app.get(path, page, {
+		return page
+	}, {
 		detail: {
 			hide: true
 		}
