@@ -49,7 +49,7 @@ export const swagger = <Path extends string = '/swagger'>({
 
 	const app = new Elysia({ name: '@elysiajs/swagger' })
 
-	const page = new Response(
+	const page = () => new Response(
 		provider === 'swagger-ui'
 			? SwaggerUIRender(
 					info,
@@ -91,7 +91,7 @@ export const swagger = <Path extends string = '/swagger'>({
 	app.get(path, page, {
 		detail: {
 			hide: true
-		}
+		},
 	}).get(
 		specPath,
 		function openAPISchema() {
