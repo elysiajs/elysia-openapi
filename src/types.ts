@@ -1,5 +1,5 @@
 import type { OpenAPIV3 } from 'openapi-types'
-import type { ReferenceConfiguration } from '@scalar/types'
+import type { ReferenceConfiguration, TagGroup } from '@scalar/types'
 import type { SwaggerUIOptions } from './swagger/types'
 
 export interface ElysiaSwaggerConfig<Path extends string = '/swagger'> {
@@ -8,11 +8,7 @@ export interface ElysiaSwaggerConfig<Path extends string = '/swagger'> {
 	 *
 	 * @see https://swagger.io/specification/v2/
 	 */
-	documentation?: Omit<
-		Partial<OpenAPIV3.Document>,
-		| 'x-express-openapi-additional-middleware'
-		| 'x-express-openapi-validation-strict'
-	>
+	documentation?: ElysiaSwaggerDocumentation;
 	/**
 	 * Choose your provider, Scalar or Swagger UI
 	 *
@@ -125,3 +121,15 @@ export interface ElysiaSwaggerConfig<Path extends string = '/swagger'> {
 	 */
 	excludeTags?: string[]
 }
+
+interface ElysiaSwaggerDocumentation extends Omit<
+    Partial<OpenAPIV3.Document>,
+    | 'x-express-openapi-additional-middleware'
+    | 'x-express-openapi-validation-strict'
+> {
+    /**
+     * Group tags in Scalar UI using `x-tagGroups` property
+     */
+    'x-tagGroups'?: TagGroup[]
+}
+
