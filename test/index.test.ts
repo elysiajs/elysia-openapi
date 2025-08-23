@@ -232,27 +232,27 @@ describe('Swagger', () => {
 	})
 
 	it('should hide routes with hide = true from paths', async () => {
-		const app = new Elysia().use(swagger())
-			.get("/public", "omg")
+		const app = new Elysia()
+			.use(swagger())
+			.get('/public', 'omg')
 			.guard({
 				detail: {
 					hide: true
 				}
 			})
-			.get("/hidden", "ok")
+			.get('/hidden', 'ok')
 
 		await app.modules
 
 		const res = await app.handle(req('/swagger/json'))
 		expect(res.status).toBe(200)
 		const response = await res.json()
-		expect(response.paths['/public']).not.toBeUndefined();
-		expect(response.paths['/hidden']).toBeUndefined();
+		expect(response.paths['/public']).not.toBeUndefined()
+		expect(response.paths['/hidden']).toBeUndefined()
 	})
 
 	it('should expand .all routes', async () => {
-		const app = new Elysia().use(swagger())
-			.all("/all", "woah")
+		const app = new Elysia().use(swagger()).all('/all', 'woah')
 
 		await app.modules
 
@@ -263,17 +263,93 @@ describe('Swagger', () => {
 	})
 
 	it('should hide routes that are invalid', async () => {
-		const app = new Elysia().use(swagger())
-			.get("/valid", "ok")
-			.route("LOCK", "/invalid", "nope")
+		const app = new Elysia()
+			.use(swagger())
+			.get('/valid', 'ok')
+			.route('LOCK', '/invalid', 'nope')
 
 		await app.modules
 
 		const res = await app.handle(req('/swagger/json'))
 		expect(res.status).toBe(200)
 		const response = await res.json()
-		expect(response.paths['/valid']).not.toBeUndefined();
-		expect(response.paths['/invalid']).toBeUndefined();
+		expect(response.paths['/valid']).not.toBeUndefined()
+		expect(response.paths['/invalid']).toBeUndefined()
+	})
 
+	it('should produce a valid OpenAPI spec with component schemas', async () => {
+		const app = new Elysia()
+			.model({
+				UserResponse: t.Object(
+					{
+						id: t.Number({ description: 'ID of the user' }),
+						name: t.String({ description: 'Name of the user' })
+					},
+					{ description: 'User response' }
+				),
+				ErrorResponse: t.Object(
+					{
+						message: t.String({ description: 'Error message' }),
+						cause: t.String({ description: 'Error cause' })
+					},
+					{ description: 'Error response' }
+				)
+			})
+			.get(
+				'/user',
+				({ status }) => {
+					return status(200, [{ id: 1, name: 'John Doe' }])
+				},
+				{
+					detail: { operationId: 'listUsers' },
+					parse: 'application/json',
+					response: {
+						200: 'UserResponse[]',
+						400: 'ErrorResponse'
+					}
+				}
+			)
+			.get(
+				'/user/:id',
+				({ status, params }) => {
+					const user = { id: Number(params.id), name: 'John Doe' }
+					return status(200, user)
+				},
+				{
+					detail: { operationId: 'getUserById' },
+					params: t.Object(
+						{ id: t.Number() },
+						{ description: 'User ID' }
+					),
+					parse: 'application/json',
+					response: {
+						200: 'UserResponse',
+						404: 'ErrorResponse'
+					}
+				}
+			)
+			.use(
+				swagger({
+					documentation: {
+						info: { title: 'Test API', version: '0.0.0' }
+					}
+				})
+			)
+
+		await app.modules
+
+		const res = await app.handle(req('/swagger/json'))
+		expect(res.status).toBe(200)
+
+		const responseText = await res.text()
+		expect(responseText).toBeString()
+		expect(responseText).not.toContain('UserResponse[]')
+		expect(responseText).toContain('#/components/schemas/UserResponse')
+		expect(responseText).toContain('#/components/schemas/ErrorResponse')
+		expect(responseText).not.toContain('$id')
+
+		const responseJson = JSON.parse(responseText)
+		const validationResult = await SwaggerParser.validate(responseJson)
+		expect(validationResult).toBeDefined()
 	})
 })
