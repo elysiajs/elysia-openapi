@@ -51,6 +51,10 @@ export const mapProperties = (
 	})
 }
 
+const makeRefString = ($ref: string) => !$ref.startsWith('#/components/schemas/')
+	? `#/components/schemas/${$ref}`
+	: $ref
+
 const mapTypesResponse = (
 	types: string[],
 	schema:
@@ -81,26 +85,14 @@ const mapTypesResponse = (
 						  schema[Kind] === 'Ref'
 						? {
 								...schema,
-								$ref: `#/components/schemas/${schema.$ref}`
+								$ref: makeRefString(schema.$ref)
 							}
 						: replaceSchemaType(
 								{ ...(schema as any) },
 								{
 									from: t.Ref(''),
 									// @ts-expect-error
-									to: ({ $ref, ...options }) => {
-										if (
-											!$ref.startsWith(
-												'#/components/schemas/'
-											)
-										)
-											return t.Ref(
-												`#/components/schemas/${$ref}`,
-												options
-											)
-
-										return t.Ref($ref, options)
-									}
+									to: ({ $ref, ...options }) => t.Ref(makeRefString($ref), options),
 								}
 							)
 		}
