@@ -1,6 +1,6 @@
 {
-    "name": "@elysiajs/swagger",
-    "version": "1.3.1",
+    "name": "@quantum/elysia-swagger",
+    "version": "1.3.1-zod-v4.0",
     "description": "Plugin for Elysia to auto-generate Swagger page",
     "author": {
         "name": "saltyAom",
@@ -69,7 +69,6 @@
     },
     "dependencies": {
         "@scalar/themes": "^0.9.52",
-        "@scalar/types": "^0.0.12",
         "openapi-types": "^12.1.3",
         "pathe": "^1.1.2"
     }

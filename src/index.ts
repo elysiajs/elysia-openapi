@@ -7,7 +7,7 @@ import { ScalarRender } from './scalar'
 import { filterPaths, registerSchemaPath } from './utils'
 
 import type { OpenAPIV3 } from 'openapi-types'
-import type { ReferenceConfiguration } from '@scalar/types'
+import type { ReferenceConfiguration } from './scalar-types'
 import type { ElysiaSwaggerConfig } from './types'
 
 /**
@@ -76,7 +76,6 @@ export const swagger = <Path extends string = '/swagger'>({
 						},
 						...scalarConfig,
 						// so we can showcase the elysia theme
-						// @ts-expect-error
 						_integration: 'elysiajs'
 					} satisfies ReferenceConfiguration,
 					scalarCDN
