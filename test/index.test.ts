@@ -1,9 +1,9 @@
-import { Elysia, t } from 'elysia'
 import SwaggerParser from '@apidevtools/swagger-parser'
+import { Elysia, t } from 'elysia'
 import { openapi } from '../src'
 
-import { describe, expect, it } from 'bun:test'
 import { fail } from 'assert'
+import { describe, expect, it } from 'bun:test'
 
 const req = (path: string) => new Request(`http://localhost${path}`)
 
@@ -271,5 +271,45 @@ describe('Swagger', () => {
 		expect(res.status).toBe(200)
 		const response = await res.json()
 		expect(Object.keys(response.paths['/all'])).toBeArrayOfSize(8)
+	})
+
+	it('should use absolute path for custom specPath to prevent path duplication', async () => {
+		const app = new Elysia().use(
+			openapi({
+				path: '/api/v1/docs',
+				specPath: '/api/v1/openapi.json'
+			})
+		)
+
+		await app.modules
+
+		const res = await app.handle(req('/api/v1/docs')).then((x) => x.text())
+
+		// The data-url should be the absolute path to prevent duplication
+		expect(res.includes('data-url="/api/v1/openapi.json"')).toBe(true)
+
+		// Ensure the spec endpoint works
+		const specRes = await app.handle(req('/api/v1/openapi.json'))
+		expect(specRes.status).toBe(200)
+	})
+
+	it('should use relative path for default specPath pattern', async () => {
+		const app = new Elysia().use(
+			openapi({
+				path: '/api/docs'
+				// specPath defaults to '/api/docs/json'
+			})
+		)
+
+		await app.modules
+
+		const res = await app.handle(req('/api/docs')).then((x) => x.text())
+
+		// The data-url should be relative for default pattern
+		expect(res.includes('data-url="api/docs/json"')).toBe(true)
+
+		// Ensure the spec endpoint works
+		const specRes = await app.handle(req('/api/docs/json'))
+		expect(specRes.status).toBe(200)
 	})
 })

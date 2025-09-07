@@ -38,7 +38,25 @@ export const openapi = <
 		...documentation.info
 	}
 
-	const relativePath = specPath.startsWith('/') ? specPath.slice(1) : specPath
+	// Determine the correct URL for the OpenAPI spec
+	// Use absolute path to avoid browser URL resolution issues when paths have complex hierarchies
+	const getSpecUrl = () => {
+		if (!specPath.startsWith('/')) {
+			// Already relative
+			return specPath
+		}
+		
+		// For default case where specPath follows the pattern path + '/json', use relative path
+		const defaultSpecPath = `${path}/json`
+		if (specPath === defaultSpecPath) {
+			return specPath.startsWith('/') ? specPath.slice(1) : specPath
+		}
+		
+		// For custom specPath, use absolute path to prevent browser URL resolution issues
+		return specPath
+	}
+	
+	const specUrl = getSpecUrl()
 
 	let totalRoutes = 0
 	let cachedSchema: OpenAPIV3.Document | undefined
@@ -52,14 +70,14 @@ export const openapi = <
 				new Response(
 					provider === 'swagger-ui'
 						? SwaggerUIRender(info, {
-								url: relativePath,
+								url: specUrl,
 								dom_id: '#swagger-ui',
 								version: 'latest',
 								autoDarkMode: true,
 								...swagger
 							})
 						: ScalarRender(info, {
-								url: relativePath,
+								url: specUrl,
 								version: 'latest',
 								cdn: `https://cdn.jsdelivr.net/npm/@scalar/api-reference@${scalar?.version ?? 'latest'}/dist/browser/standalone.min.js`,
 								...(scalar as ApiReferenceConfiguration),
