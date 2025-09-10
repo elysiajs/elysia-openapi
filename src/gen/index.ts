@@ -58,6 +58,23 @@ interface OpenAPIGeneratorOptions {
 	 * @default false
 	 */
 	debug?: boolean
+
+	/**
+	 * compilerOptions
+	 *
+	 * Override tsconfig.json compilerOptions
+	 */
+	compilerOptions?: Record<string, any>
+
+	/**
+	 * Temporary root
+	 *
+	 * a folder where temporary files are stored
+	 * @default os.tmpdir()/.ElysiaAutoOpenAPI
+	 *
+	 * ! be careful that the folder will be removed after the process ends
+	 */
+	tmpRoot?: string
 }
 
 /**
@@ -80,12 +97,12 @@ export const fromTypes =
 			instanceName,
 			projectRoot = process.cwd(),
 			overrideOutputPath,
-			debug = false
+			debug = false,
+			compilerOptions,
+			tmpRoot = join(tmpdir(), '.ElysiaAutoOpenAPI')
 		}: OpenAPIGeneratorOptions = {}
 	) =>
 	() => {
-		const tmpRoot = join(tmpdir(), '.ElysiaAutoOpenAPI')
-
 		try {
 			if (
 				!targetFilePath.endsWith('.ts') &&
@@ -128,16 +145,20 @@ export const fromTypes =
 					join(tmpRoot, 'tsconfig.json'),
 					`{
 	${extendsRef}
-	"compilerOptions": {
-		"lib": ["ESNext"],
-		"module": "ESNext",
-		"noEmit": false,
-		"declaration": true,
-		"emitDeclarationOnly": true,
-		"moduleResolution": "bundler",
-		"skipLibCheck": true,
-		"skipDefaultLibCheck": true,
-		"outDir": "./dist"
+	"compilerOptions": ${
+		compilerOptions
+			? JSON.stringify(compilerOptions)
+			: `{
+	"lib": ["ESNext"],
+	"module": "ESNext",
+	"noEmit": false,
+	"declaration": true,
+	"emitDeclarationOnly": true,
+	"moduleResolution": "bundler",
+	"skipLibCheck": true,
+	"skipDefaultLibCheck": true,
+	"outDir": "${join(tmpRoot, 'dist')}"
+}`
 	},
 	"include": ["${src}"]
 }`

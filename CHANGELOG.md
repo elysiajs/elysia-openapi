@@ -1,3 +1,10 @@
+# 1.3.11 - 10 Sep 2025
+Improvement:
+- type generator: add `compilerOptions`, `tmpRoot` options
+
+Bug fix:
+- type generator: use absolute path to generate types
+
 # 1.3.10 - 5 Sep 2025
 Feature:
 - type generator: accept `.d.ts` to prevent type generation in production
