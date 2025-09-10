@@ -5,8 +5,6 @@ import {
 	writeFileSync,
 	rmSync,
 	existsSync,
-	cpSync,
-	exists,
 	readdirSync
 } from 'fs'
 import { TypeBox } from '@sinclair/typemap'
@@ -113,7 +111,7 @@ export const fromTypes =
 			if (targetFilePath.startsWith('./'))
 				targetFilePath = targetFilePath.slice(2)
 
-			const src = targetFilePath.startsWith('/')
+			let src = targetFilePath.startsWith('/')
 				? targetFilePath
 				: join(projectRoot, targetFilePath)
 
@@ -137,9 +135,21 @@ export const fromTypes =
 					? tsconfigPath
 					: join(projectRoot, tsconfigPath)
 
-				const extendsRef = existsSync(tsconfig)
+				let extendsRef = existsSync(tsconfig)
 					? `"extends": "${join(projectRoot, 'tsconfig.json')}",`
 					: ''
+
+				let distDir = join(tmpRoot, 'dist')
+
+				// Convert Windows path to Unix for TypeScript CLI
+				if (
+					typeof process !== 'undefined' &&
+					process.platform === 'win32'
+				) {
+					extendsRef = extendsRef.replace(/\\/g, '/')
+					src = src.replace(/\\/g, '/')
+					distDir = distDir.replace(/\\/g, '/')
+				}
 
 				writeFileSync(
 					join(tmpRoot, 'tsconfig.json'),
@@ -157,7 +167,7 @@ export const fromTypes =
 	"moduleResolution": "bundler",
 	"skipLibCheck": true,
 	"skipDefaultLibCheck": true,
-	"outDir": "${join(tmpRoot, 'dist')}"
+	"outDir": "${distDir}"
 }`
 	},
 	"include": ["${src}"]

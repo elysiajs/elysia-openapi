@@ -1,9 +1,13 @@
-# 1.3.11 - 10 Sep 2025
+# 1.3.12 - 10 Sep 2025
 Improvement:
 - type generator: add `compilerOptions`, `tmpRoot` options
 
 Bug fix:
 - type generator: use absolute path to generate types
+
+# 1.3.11 - 9 Sep 2025
+Bug fix:
+- type generator: convert Windows path to Unix for TypeScript CLI
 
 # 1.3.10 - 5 Sep 2025
 Feature:

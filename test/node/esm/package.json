@@ -1,6 +1,6 @@
 {
     "type": "module",
     "dependencies": {
-        "@elysiajs/openapi": "../../.."
+        "@elysiajs/openapi": "file:../../.."
     }
 }
