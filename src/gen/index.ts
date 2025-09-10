@@ -234,6 +234,11 @@ export const fromTypes =
 							)
 							console.warn(tempFiles)
 						}
+					} else {
+						console.log(
+							"reason: root folter doesn't exists",
+							join(tmpRoot, 'dist')
+						)
 					}
 
 					return
