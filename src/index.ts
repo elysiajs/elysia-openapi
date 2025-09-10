@@ -1,4 +1,4 @@
-import { Elysia, type InternalRoute } from 'elysia'
+import { Elysia } from 'elysia'
 
 import { SwaggerUIRender } from './swagger'
 import { ScalarRender } from './scalar'
@@ -80,7 +80,7 @@ export const openapi = <
 		})
 		.get(
 			specPath,
-			function openAPISchema() {
+			async function openAPISchema() {
 				if (totalRoutes === app.routes.length) return cachedSchema
 
 				totalRoutes = app.routes.length
@@ -88,7 +88,7 @@ export const openapi = <
 				const {
 					paths,
 					components: { schemas }
-				} = toOpenAPISchema(app, exclude, references)
+				} = await toOpenAPISchema(app, exclude, references)
 
 				return (cachedSchema = {
 					openapi: '3.0.3',
@@ -112,7 +112,7 @@ export const openapi = <
 						...documentation.components,
 						schemas: {
 							...schemas,
-							...documentation.components?.schemas
+							...(documentation.components?.schemas as any)
 						}
 					}
 				} satisfies OpenAPIV3.Document)

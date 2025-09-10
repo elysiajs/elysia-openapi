@@ -236,7 +236,7 @@ export const fromTypes =
 						}
 					} else {
 						console.log(
-							"reason: root folter doesn't exists",
+							"reason: root folder doesn't exists",
 							join(tmpRoot, 'dist')
 						)
 					}

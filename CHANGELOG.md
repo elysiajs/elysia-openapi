@@ -1,3 +1,8 @@
+# 1.4.0
+Improvement:
+- support Standard Schema to OpenAPI
+- use respective content type based on schema
+
 # 1.3.12 - 10 Sep 2025
 Improvement:
 - type generator: add `compilerOptions`, `tmpRoot` options

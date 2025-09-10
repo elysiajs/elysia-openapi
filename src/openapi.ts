@@ -1,8 +1,10 @@
 import { t, type AnyElysia, type TSchema, type InputSchema } from 'elysia'
-import type { HookContainer } from 'elysia/types'
+import type { HookContainer, StandardSchemaV1Like } from 'elysia/types'
 
 import type { OpenAPIV3 } from 'openapi-types'
 import { Kind, type TProperties } from '@sinclair/typebox'
+
+import { toJsonSchema } from 'xsschema'
 
 import type {
 	AdditionalReference,
@@ -67,12 +69,26 @@ export const getLoosePath = (path: string) => {
 	return path + '/'
 }
 
+type MaybePromise<T> = T | Promise<T>
+
+export const unwrapSchema = (
+	schema: InputSchema['body']
+): MaybePromise<OpenAPIV3.SchemaObject | undefined> => {
+	if (!schema) return
+
+	if (typeof schema === 'string') schema = toRef(schema)
+	if (Kind in schema) return schema
+
+	if (Kind in schema === false && schema['~standard'])
+		return toJsonSchema(schema as any) as Promise<OpenAPIV3.SchemaObject>
+}
+
 /**
  * Converts Elysia routes to OpenAPI 3.0.3 paths schema
  * @param routes Array of Elysia route objects
  * @returns OpenAPI paths object
  */
-export function toOpenAPISchema(
+export async function toOpenAPISchema(
 	app: AnyElysia,
 	exclude?: ElysiaOpenAPIConfig['exclude'],
 	references?: AdditionalReferences
@@ -122,7 +138,7 @@ export function toOpenAPISchema(
 
 		if (references)
 			for (const reference of references as AdditionalReference[]) {
-				if(!reference) continue
+				if (!reference) continue
 
 				const refer =
 					reference[route.path]?.[method] ??
@@ -179,12 +195,12 @@ export function toOpenAPISchema(
 
 		// Handle path parameters
 		if (hooks.params) {
-			if (typeof hooks.params === 'string')
-				hooks.params = toRef(hooks.params)
+			let params = unwrapSchema(hooks.params)
+			if (params) params = await params
 
-			if (hooks.params.type === 'object' && hooks.params.properties) {
+			if (params && params.type === 'object' && params.properties)
 				for (const [paramName, paramSchema] of Object.entries(
-					hooks.params.properties
+					params.properties
 				))
 					parameters.push({
 						name: paramName,
@@ -192,18 +208,17 @@ export function toOpenAPISchema(
 						required: true, // Path parameters are always required
 						schema: paramSchema
 					})
-			}
 		}
 
 		// Handle query parameters
 		if (hooks.query) {
-			if (typeof hooks.query === 'string')
-				hooks.query = toRef(hooks.query)
+			let query = unwrapSchema(hooks.query)
+			if (query) query = await query
 
-			if (hooks.query.type === 'object' && hooks.query.properties) {
-				const required = hooks.query.required || []
+			if (query && query.type === 'object' && query.properties) {
+				const required = query.required || []
 				for (const [queryName, querySchema] of Object.entries(
-					hooks.query.properties
+					query.properties
 				))
 					parameters.push({
 						name: queryName,
@@ -216,13 +231,13 @@ export function toOpenAPISchema(
 
 		// Handle header parameters
 		if (hooks.headers) {
-			if (typeof hooks.headers === 'string')
-				hooks.headers = toRef(hooks.headers)
+			let headers = unwrapSchema(hooks.query)
+			if (headers) headers = await headers
 
-			if (hooks.headers.type === 'object' && hooks.headers.properties) {
-				const required = hooks.headers.required || []
+			if (headers && headers.type === 'object' && headers.properties) {
+				const required = headers.required || []
 				for (const [headerName, headerSchema] of Object.entries(
-					hooks.headers.properties
+					headers.properties
 				))
 					parameters.push({
 						name: headerName,
@@ -235,13 +250,13 @@ export function toOpenAPISchema(
 
 		// Handle cookie parameters
 		if (hooks.cookie) {
-			if (typeof hooks.cookie === 'string')
-				hooks.cookie = toRef(hooks.cookie)
+			let cookie = unwrapSchema(hooks.cookie)
+			if (cookie) cookie = await cookie
 
-			if (hooks.cookie.type === 'object' && hooks.cookie.properties) {
-				const required = hooks.cookie.required || []
+			if (cookie && cookie.type === 'object' && cookie.properties) {
+				const required = cookie.required || []
 				for (const [cookieName, cookieSchema] of Object.entries(
-					hooks.cookie.properties
+					cookie.properties
 				))
 					parameters.push({
 						name: cookieName,
@@ -257,60 +272,83 @@ export function toOpenAPISchema(
 
 		// Handle request body
 		if (hooks.body && method !== 'get' && method !== 'head') {
-			if (typeof hooks.body === 'string') hooks.body = toRef(hooks.body)
+			let body = unwrapSchema(hooks.body)
+			if (body) body = await body
 
-			// @ts-ignore
-			if (hooks.parse) {
-				const content: Record<string, { schema: TSchema }> = {}
+			if (body) {
+				// @ts-ignore
+				const { type: _type, description, ...options } = body
+				const type = _type as string | undefined
 
 				// @ts-ignore
-				const parsers = hooks.parse as HookContainer[]
+				if (hooks.parse) {
+					const content: Record<
+						string,
+						{ schema: OpenAPIV3.SchemaObject }
+					> = {}
 
-				for (const parser of parsers) {
-					if (typeof parser.fn === 'function') continue
+					// @ts-ignore
+					const parsers = hooks.parse as HookContainer[]
 
-					switch (parser.fn) {
-						case 'text':
-						case 'text/plain':
-							content['text/plain'] = { schema: hooks.body }
-							continue
+					for (const parser of parsers) {
+						if (typeof parser.fn === 'function') continue
 
-						case 'urlencoded':
-						case 'application/x-www-form-urlencoded':
-							content['application/x-www-form-urlencoded'] = {
-								schema: hooks.body
-							}
-							continue
+						switch (parser.fn) {
+							case 'text':
+							case 'text/plain':
+								content['text/plain'] = { schema: body }
+								continue
 
-						case 'json':
-						case 'application/json':
-							content['application/json'] = { schema: hooks.body }
-							continue
+							case 'urlencoded':
+							case 'application/x-www-form-urlencoded':
+								content['application/x-www-form-urlencoded'] = {
+									schema: body
+								}
+								continue
 
-						case 'formdata':
-						case 'multipart/form-data':
-							content['multipart/form-data'] = {
-								schema: hooks.body
-							}
-							continue
-					}
-				}
+							case 'json':
+							case 'application/json':
+								content['application/json'] = { schema: body }
+								continue
 
-				operation.requestBody = { content, required: true }
-			} else {
-				operation.requestBody = {
-					content: {
-						'application/json': {
-							schema: hooks.body
-						},
-						'application/x-www-form-urlencoded': {
-							schema: hooks.body
-						},
-						'multipart/form-data': {
-							schema: hooks.body
+							case 'formdata':
+							case 'multipart/form-data':
+								content['multipart/form-data'] = {
+									schema: body
+								}
+								continue
 						}
-					},
-					required: true
+					}
+
+					operation.requestBody = {
+						description,
+						content,
+						required: true
+					}
+				} else {
+					operation.requestBody = {
+						description,
+						content:
+							type === 'string' ||
+							type === 'number' ||
+							type === 'integer' ||
+							type === 'boolean'
+								? {
+										'text/plain': body
+									}
+								: {
+										'application/json': {
+											schema: body
+										},
+										'application/x-www-form-urlencoded': {
+											schema: body
+										},
+										'multipart/form-data': {
+											schema: body
+										}
+									},
+						required: true
+					}
 				}
 			}
 		}
@@ -325,37 +363,71 @@ export function toOpenAPISchema(
 				!(hooks.response as TSchema).$ref
 			) {
 				for (let [status, schema] of Object.entries(hooks.response)) {
-					if (typeof schema === 'string') schema = toRef(schema)
+					let response = unwrapSchema(schema)
+					if (response) response = await response
 
-					// Must exclude $ref from root options
-					const { type, examples, $ref, ...options } = schema
+					if (!response) continue
+
+					// @ts-ignore Must exclude $ref from root options
+					const { type: _type, description, ...options } = response
+					const type = _type as string | undefined
 
 					operation.responses[status] = {
-						description: `Response for status ${status}`,
+						description:
+							description ?? `Response for status ${status}`,
 						...options,
 						content:
 							type === 'void' ||
 							type === 'null' ||
 							type === 'undefined'
-								? schema
-								: {
-										'application/json': {
-											schema
+								? (response as any)
+								: type === 'string' ||
+									  type === 'number' ||
+									  type === 'integer' ||
+									  type === 'boolean'
+									? {
+											'text/plain': {
+												schema: response
+											}
 										}
-									}
+									: {
+											'application/json': {
+												schema: response
+											}
+										}
 					}
 				}
 			} else {
-				if (typeof hooks.response === 'string')
-					hooks.response = toRef(hooks.response)
+				let response = unwrapSchema(hooks.response as any)
+				if (response) response = await response
 
-				// It's a single schema, default to 200
-				operation.responses['200'] = {
-					description: 'Successful response',
-					content: {
-						'application/json': {
-							schema: hooks.response
-						}
+				if (response) {
+					// @ts-ignore
+					const { type: _type, description, ...options } = response
+					const type = _type as string | undefined
+
+					// It's a single schema, default to 200
+					operation.responses['200'] = {
+						description: description ?? `Response for status 200`,
+						content:
+							type === 'void' ||
+							type === 'null' ||
+							type === 'undefined'
+								? (response as any)
+								: type === 'string' ||
+									  type === 'number' ||
+									  type === 'integer' ||
+									  type === 'boolean'
+									? {
+											'text/plain': {
+												schema: response
+											}
+										}
+									: {
+											'application/json': {
+												schema: response
+											}
+										}
 					}
 				}
 			}
@@ -397,7 +469,20 @@ export function toOpenAPISchema(
 	}
 
 	// @ts-ignore private property
-	const schemas = app.getGlobalDefinitions?.().type
+	const _schemas = app.getGlobalDefinitions?.().type
+
+	const schemas = Object.create(null)
+
+	if (_schemas)
+		for (const [name, schema] of Object.entries(_schemas)) {
+			let jsonSchema = unwrapSchema(schema as any) as
+				| OpenAPIV3.SchemaObject
+				| undefined
+
+			if (jsonSchema instanceof Promise) jsonSchema = await jsonSchema
+
+			if (jsonSchema) schemas[name] = jsonSchema
+		}
 
 	return {
 		components: {
