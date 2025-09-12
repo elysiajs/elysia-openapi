@@ -78,7 +78,7 @@
         "@apidevtools/swagger-parser": "^12.0.0",
         "@scalar/types": "^0.2.13",
         "@sinclair/typemap": "^0.10.1",
-        "@types/bun": "1.2.20",
+        "@types/bun": "1.2.21",
         "elysia": "1.4.0",
         "eslint": "9.6.0",
         "openapi-types": "^12.1.3",
