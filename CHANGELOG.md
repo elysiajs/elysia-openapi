@@ -1,3 +1,7 @@
+# 1.4.2 - 14 Sep 2025
+Bug fix:
+- remove xsschema from dependencies
+
 # 1.4.1 - 14 Sep 2025
 Feature:
 - add `mapJsonSchema` to add custom JSON Schema mapping
