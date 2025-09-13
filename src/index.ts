@@ -27,7 +27,8 @@ export const openapi = <
 	exclude,
 	swagger,
 	scalar,
-	references
+	references,
+	mapJsonSchema
 }: ElysiaOpenAPIConfig<Enabled, Path, Provider> = {}) => {
 	if (!enabled) return new Elysia({ name: '@elysiajs/openapi' })
 
@@ -80,7 +81,7 @@ export const openapi = <
 		})
 		.get(
 			specPath,
-			async function openAPISchema() {
+			function openAPISchema() {
 				if (totalRoutes === app.routes.length) return cachedSchema
 
 				totalRoutes = app.routes.length
@@ -88,7 +89,7 @@ export const openapi = <
 				const {
 					paths,
 					components: { schemas }
-				} = await toOpenAPISchema(app, exclude, references)
+				} = toOpenAPISchema(app, exclude, references, mapJsonSchema)
 
 				return (cachedSchema = {
 					openapi: '3.0.3',

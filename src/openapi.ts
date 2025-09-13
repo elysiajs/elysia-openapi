@@ -4,12 +4,11 @@ import type { HookContainer, StandardSchemaV1Like } from 'elysia/types'
 import type { OpenAPIV3 } from 'openapi-types'
 import { Kind, type TProperties } from '@sinclair/typebox'
 
-import { toJsonSchema } from 'xsschema'
-
 import type {
 	AdditionalReference,
 	AdditionalReferences,
-	ElysiaOpenAPIConfig
+	ElysiaOpenAPIConfig,
+	MapJsonSchema
 } from './types'
 
 export const capitalize = (word: string) =>
@@ -69,18 +68,33 @@ export const getLoosePath = (path: string) => {
 	return path + '/'
 }
 
-type MaybePromise<T> = T | Promise<T>
-
 export const unwrapSchema = (
-	schema: InputSchema['body']
-): MaybePromise<OpenAPIV3.SchemaObject | undefined> => {
+	schema: InputSchema['body'],
+	mapJsonSchema?: MapJsonSchema
+): OpenAPIV3.SchemaObject | undefined => {
 	if (!schema) return
 
 	if (typeof schema === 'string') schema = toRef(schema)
 	if (Kind in schema) return schema
 
-	if (Kind in schema === false && schema['~standard'])
-		return toJsonSchema(schema as any) as Promise<OpenAPIV3.SchemaObject>
+	if (Kind in schema || !schema?.['~standard']) return
+
+	// @ts-ignore
+	const vendor = schema['~standard'].vendor
+
+	if (mapJsonSchema?.[vendor] && typeof mapJsonSchema[vendor] === 'function')
+		return mapJsonSchema[vendor](schema)
+
+	if (vendor === 'zod' || vendor === 'sury')
+		// @ts-ignore
+		return schema.toJSONSchema?.()
+
+	if (vendor === 'arktype')
+		// @ts-ignore
+		return schema?.toJsonSchema?.()
+
+	// @ts-ignore
+	return schema.toJSONSchema?.() ?? schema?.toJsonSchema?.()
 }
 
 /**
@@ -88,10 +102,11 @@ export const unwrapSchema = (
  * @param routes Array of Elysia route objects
  * @returns OpenAPI paths object
  */
-export async function toOpenAPISchema(
+export function toOpenAPISchema(
 	app: AnyElysia,
 	exclude?: ElysiaOpenAPIConfig['exclude'],
-	references?: AdditionalReferences
+	references?: AdditionalReferences,
+	vendors?: MapJsonSchema
 ) {
 	const {
 		methods: excludeMethods = ['OPTIONS'],
@@ -195,8 +210,7 @@ export async function toOpenAPISchema(
 
 		// Handle path parameters
 		if (hooks.params) {
-			let params = unwrapSchema(hooks.params)
-			if (params) params = await params
+			const params = unwrapSchema(hooks.params, vendors)
 
 			if (params && params.type === 'object' && params.properties)
 				for (const [paramName, paramSchema] of Object.entries(
@@ -212,8 +226,7 @@ export async function toOpenAPISchema(
 
 		// Handle query parameters
 		if (hooks.query) {
-			let query = unwrapSchema(hooks.query)
-			if (query) query = await query
+			let query = unwrapSchema(hooks.query, vendors)
 
 			if (query && query.type === 'object' && query.properties) {
 				const required = query.required || []
@@ -231,8 +244,7 @@ export async function toOpenAPISchema(
 
 		// Handle header parameters
 		if (hooks.headers) {
-			let headers = unwrapSchema(hooks.query)
-			if (headers) headers = await headers
+			const headers = unwrapSchema(hooks.query, vendors)
 
 			if (headers && headers.type === 'object' && headers.properties) {
 				const required = headers.required || []
@@ -250,8 +262,7 @@ export async function toOpenAPISchema(
 
 		// Handle cookie parameters
 		if (hooks.cookie) {
-			let cookie = unwrapSchema(hooks.cookie)
-			if (cookie) cookie = await cookie
+			const cookie = unwrapSchema(hooks.cookie, vendors)
 
 			if (cookie && cookie.type === 'object' && cookie.properties) {
 				const required = cookie.required || []
@@ -272,8 +283,7 @@ export async function toOpenAPISchema(
 
 		// Handle request body
 		if (hooks.body && method !== 'get' && method !== 'head') {
-			let body = unwrapSchema(hooks.body)
-			if (body) body = await body
+			const body = unwrapSchema(hooks.body, vendors)
 
 			if (body) {
 				// @ts-ignore
@@ -363,8 +373,7 @@ export async function toOpenAPISchema(
 				!(hooks.response as TSchema).$ref
 			) {
 				for (let [status, schema] of Object.entries(hooks.response)) {
-					let response = unwrapSchema(schema)
-					if (response) response = await response
+					const response = unwrapSchema(schema, vendors)
 
 					if (!response) continue
 
@@ -398,8 +407,7 @@ export async function toOpenAPISchema(
 					}
 				}
 			} else {
-				let response = unwrapSchema(hooks.response as any)
-				if (response) response = await response
+				const response = unwrapSchema(hooks.response as any, vendors)
 
 				if (response) {
 					// @ts-ignore
@@ -470,16 +478,13 @@ export async function toOpenAPISchema(
 
 	// @ts-ignore private property
 	const _schemas = app.getGlobalDefinitions?.().type
-
 	const schemas = Object.create(null)
 
 	if (_schemas)
 		for (const [name, schema] of Object.entries(_schemas)) {
-			let jsonSchema = unwrapSchema(schema as any) as
+			const jsonSchema = unwrapSchema(schema as any, vendors) as
 				| OpenAPIV3.SchemaObject
 				| undefined
-
-			if (jsonSchema instanceof Promise) jsonSchema = await jsonSchema
 
 			if (jsonSchema) schemas[name] = jsonSchema
 		}

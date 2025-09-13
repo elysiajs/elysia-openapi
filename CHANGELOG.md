@@ -1,4 +1,14 @@
-# 1.4.0
+# 1.4.1 - 14 Sep 2025
+Feature:
+- add `mapJsonSchema` to add custom JSON Schema mapping
+
+Bug fix:
+- build error when using --compile
+
+Change:
+- remove xsschema
+
+# 1.4.0 - 13 Sep 2025
 Improvement:
 - support Standard Schema to OpenAPI
 - use respective content type based on schema

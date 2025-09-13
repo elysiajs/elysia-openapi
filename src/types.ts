@@ -7,6 +7,8 @@ export type OpenAPIProvider = 'scalar' | 'swagger-ui' | null
 
 type MaybeArray<T> = T | T[]
 
+export type MapJsonSchema = { [vendor: string]: Function }
+
 export type AdditionalReference = {
 	[path in string]: {
 		[method in string]: {
@@ -90,6 +92,22 @@ export interface ElysiaOpenAPIConfig<
 	 * Additional reference for each endpoint
 	 */
 	references?: AdditionalReferences
+
+	/**
+	 * Mapping function from Standard schema to OpenAPI schema
+	 *
+	 * @example
+	 * ```ts
+	 * import { openapi } from '@elysiajs/openapi'
+	 * import { toJsonSchema } from '@valibot/to-json-schema'
+	 *
+	 * openapi({
+	 * 	vendors: {
+	 * 	  valibot: toJsonSchema
+	 *   }
+	 * })
+	 */
+	mapJsonSchema?: MapJsonSchema
 
 	/**
 	 * Scalar configuration to customize scalar
