@@ -102,7 +102,7 @@ export interface ElysiaOpenAPIConfig<
 	 * import { toJsonSchema } from '@valibot/to-json-schema'
 	 *
 	 * openapi({
-	 * 	vendors: {
+	 * 	mapJsonSchema: {
 	 * 	  valibot: toJsonSchema
 	 *   }
 	 * })
