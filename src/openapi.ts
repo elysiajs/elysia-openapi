@@ -345,7 +345,7 @@ export function toOpenAPISchema(
 
 		// Handle header parameters
 		if (hooks.headers) {
-			const headers = unwrapReference(unwrapSchema(hooks.query, vendors), definitions)
+			const headers = unwrapReference(unwrapSchema(hooks.headers, vendors), definitions)
 
 			if (headers && headers.type === 'object' && headers.properties) {
 				const required = headers.required || []
