@@ -7,7 +7,16 @@ export type OpenAPIProvider = 'scalar' | 'swagger-ui' | null
 
 type MaybeArray<T> = T | T[]
 
-export type MapJsonSchema = { [vendor: string]: Function }
+export type MapJsonSchema = { [vendor: string]: Function } & {
+	[vendor in // schema['~standard'].vendor
+	| 'zod'
+		| 'effect'
+		| 'valibot'
+		| 'arktype'
+		| 'typemap'
+		| 'yup'
+		| 'joi']?: Function
+}
 
 export type AdditionalReference = {
 	[path in string]: {
@@ -27,8 +36,7 @@ export type AdditionalReferences = MaybeArray<
 
 export interface ElysiaOpenAPIConfig<
 	Enabled extends boolean = true,
-	Path extends string = '/swagger',
-	Provider extends OpenAPIProvider = 'scalar'
+	Path extends string = '/swagger'
 > {
 	/**
 	 * @default true
@@ -86,7 +94,7 @@ export interface ElysiaOpenAPIConfig<
 	 * @see https://github.com/scalar/scalar
 	 * @see https://github.com/swagger-api/swagger-ui
 	 */
-	provider?: Provider
+	provider?: OpenAPIProvider
 
 	/**
 	 * Additional reference for each endpoint

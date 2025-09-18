@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia'
 import z from 'zod'
+import { JSONSchema, Schema } from 'effect'
 
 import { openapi, withHeaders } from '../src/index'
 
@@ -21,6 +22,10 @@ export const app = new Elysia()
 	.use(
 		openapi({
 			provider: 'scalar',
+			mapJsonSchema: {
+				zod: z.toJSONSchema,
+				effect: JSONSchema.make
+			},
 			documentation: {
 				info: {
 					title: 'Elysia Scalar',
@@ -49,6 +54,28 @@ export const app = new Elysia()
 		})
 	)
 	.model({ schema, schema2, user })
+	.model({
+		idParam: t.Object({
+			id: t.Union([
+				t.String({ format: 'uuid' }),
+				t.Number({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER })
+			]),
+			id2: t.String()
+		}),
+		response200: t.Object({
+			message: t.String(),
+			content: t.Array(t.Object({
+				id: t.Union([t.String(), t.Number()])
+			}))
+		})
+	})
+	.get('/test/:id/:id2', ({ params: { id } }) => ({
+		message: 'ok',
+		content: [{ id }]
+	}), {
+		params: 'idParam',
+		response: 'response200'
+	})
 	.get(
 		'/',
 		{ test: 'hello' as const },
@@ -72,17 +99,24 @@ export const app = new Elysia()
 	.post(
 		'/json',
 		({ body }) => ({
-			test: 'world'
+			test: 'hello'
 		}),
 		{
 			parse: ['json', 'formdata'],
 			body: 'schema',
 			response: {
-				200: 'schema',
+				200: t.Object({
+					test: t.Literal('hello')
+				}),
 				400: z.object({
 					a: z.string(),
 					b: z.literal('a')
-				})
+				}),
+				401: Schema.standardSchemaV1(
+					Schema.Struct({
+						a: Schema.Literal('hi')
+					})
+				)
 			}
 		}
 	)

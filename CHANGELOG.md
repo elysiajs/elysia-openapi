@@ -1,3 +1,11 @@
+# 1.4.3 - 18 Sep 2025
+Improvement:
+- unwrap model reference into parameter schema
+- add warning for standard schema without `toJSONSchema` method
+- remove `Provider` from generic type to allow auto-completion
+- auto-completion for `mapJSONSchema`
+- log error when failed to OpenAPI JSON
+
 # 1.4.2 - 14 Sep 2025
 Bug fix:
 - remove xsschema from dependencies

@@ -16,12 +16,11 @@ import type { ElysiaOpenAPIConfig, OpenAPIProvider } from './types'
  */
 export const openapi = <
 	const Enabled extends boolean = true,
-	const Path extends string = '/openapi',
-	const Provider extends OpenAPIProvider = 'scalar'
+	const Path extends string = '/openapi'
 >({
 	enabled = true as Enabled,
 	path = '/openapi' as Path,
-	provider = 'scalar' as Provider,
+	provider = 'scalar',
 	specPath = `${path}/json`,
 	documentation = {},
 	exclude,
@@ -29,7 +28,7 @@ export const openapi = <
 	scalar,
 	references,
 	mapJsonSchema
-}: ElysiaOpenAPIConfig<Enabled, Path, Provider> = {}) => {
+}: ElysiaOpenAPIConfig<Enabled, Path> = {}) => {
 	if (!enabled) return new Elysia({ name: '@elysiajs/openapi' })
 
 	const info = {
@@ -119,6 +118,10 @@ export const openapi = <
 				} satisfies OpenAPIV3.Document)
 			},
 			{
+				error({ error }) {
+					console.log('[@elysiajs/openapi] error at specPath')
+					console.warn(error)
+				},
 				detail: {
 					hide: true
 				}

@@ -10,6 +10,7 @@ import type {
 	ElysiaOpenAPIConfig,
 	MapJsonSchema
 } from './types'
+import { DefaultErrorFunction } from '@sinclair/typebox/errors'
 
 export const capitalize = (word: string) =>
 	word.charAt(0).toUpperCase() + word.slice(1)
@@ -55,6 +56,7 @@ export const getPossiblePath = (path: string): string[] => {
 }
 
 const isValidSchema = (schema: any): schema is TSchema =>
+	schema &&
 	typeof schema === 'object' &&
 	((Kind in schema && schema[Kind] !== 'Unknown') ||
 		schema.type ||
@@ -66,6 +68,50 @@ export const getLoosePath = (path: string) => {
 		return path.slice(0, path.length - 1)
 
 	return path + '/'
+}
+
+const warnings = {
+	zod4: `import openapi from '@elysiajs/openapi'
+import * as z from 'zod'
+
+openapi({
+  mapJsonSchema: {
+    zod: z.toJSONSchema
+  }
+})`,
+	zod3: `import openapi from '@elysiajs/openapi'
+import { zodToJsonSchema } from 'zod-to-json-schema'
+
+openapi({
+  mapJsonSchema: {
+    zod: zodToJsonSchema
+  }
+})`,
+	valibot: `import { toJsonSchema } from '@valibot/to-json-schema'
+
+openapi({
+  mapJsonSchema: {
+    valibot: toJsonSchema
+  }
+})`,
+	effect: `import { JSONSchema } from 'effect'
+
+openapi({
+  mapJsonSchema: {
+    effect: JSONSchema.make
+  }
+})`
+} as const
+
+const warned = {} as Record<keyof typeof warnings, boolean | undefined>
+
+const unwrapReference = (schema: any, definitions: Record<string, unknown>) => {
+	if (!schema?.$ref) return schema
+
+	const name = schema.$ref.slice(schema.$ref.lastIndexOf('/') + 1)
+	if (schema.$ref && definitions[name]) schema = definitions[name]
+
+	return schema
 }
 
 export const unwrapSchema = (
@@ -85,9 +131,59 @@ export const unwrapSchema = (
 	if (mapJsonSchema?.[vendor] && typeof mapJsonSchema[vendor] === 'function')
 		return mapJsonSchema[vendor](schema)
 
-	if (vendor === 'zod' || vendor === 'sury')
-		// @ts-ignore
-		return schema.toJSONSchema?.()
+	switch (vendor) {
+		case 'zod':
+			if (warned.zod4 || warned.zod3) break
+
+			console.warn(
+				"[@elysiajs/openapi] Zod doesn't provide JSON Schema method on the schema"
+			)
+
+			if ('_zod' in schema) {
+				warned.zod4 = true
+
+				console.warn(
+					'For Zod v4, please provide z.toJSONSchema as follows:\n'
+				)
+				console.warn(warnings.zod4)
+			} else {
+				warned.zod3 = true
+
+				console.warn(
+					'For Zod v3, please install zod-to-json-schema package and use it like this:\n'
+				)
+				console.log(warnings.zod3)
+			}
+			break
+
+		case 'valibot':
+			if (warned.valibot) break
+			warned.valibot = true
+
+			console.warn(
+				'[@elysiajs/openapi] Valibot require a separate package for JSON Schema conversion'
+			)
+			console.warn(
+				'Please install @valibot/to-json-schema package and use it like this:\n'
+			)
+			console.warn(warnings.valibot)
+			break
+
+		case 'effect':
+			// Effect does not support toJsonSchema method
+			// Users have to use third party library like effect-zod
+			if (warned.effect) break
+			warned.effect = true
+
+			console.warn(
+				"[@elysiajs/openapi] Effect Schema doesn't provide JSON Schema method on the schema"
+			)
+			console.warn(
+				"please provide JSONSchema from 'effect' package as follows:\n"
+			)
+			console.warn(warnings.effect)
+			break
+	}
 
 	if (vendor === 'arktype')
 		// @ts-ignore
@@ -121,6 +217,8 @@ export function toOpenAPISchema(
 			: []
 
 	const paths: OpenAPIV3.PathsObject = Object.create(null)
+	// @ts-ignore
+	const definitions = app.getGlobalDefinitions?.().type
 
 	// @ts-ignore private property
 	const routes = app.getGlobalRoutes()
@@ -151,7 +249,7 @@ export function toOpenAPISchema(
 			detail: Partial<OpenAPIV3.OperationObject>
 		} = route.hooks ?? {}
 
-		if (references)
+		if (references?.length)
 			for (const reference of references as AdditionalReference[]) {
 				if (!reference) continue
 
@@ -210,7 +308,10 @@ export function toOpenAPISchema(
 
 		// Handle path parameters
 		if (hooks.params) {
-			const params = unwrapSchema(hooks.params, vendors)
+			const params = unwrapReference(
+				unwrapSchema(hooks.params, vendors),
+				definitions
+			)
 
 			if (params && params.type === 'object' && params.properties)
 				for (const [paramName, paramSchema] of Object.entries(
@@ -226,7 +327,7 @@ export function toOpenAPISchema(
 
 		// Handle query parameters
 		if (hooks.query) {
-			let query = unwrapSchema(hooks.query, vendors)
+			const query = unwrapReference(unwrapSchema(hooks.query, vendors), definitions)
 
 			if (query && query.type === 'object' && query.properties) {
 				const required = query.required || []
@@ -244,7 +345,7 @@ export function toOpenAPISchema(
 
 		// Handle header parameters
 		if (hooks.headers) {
-			const headers = unwrapSchema(hooks.query, vendors)
+			const headers = unwrapReference(unwrapSchema(hooks.query, vendors), definitions)
 
 			if (headers && headers.type === 'object' && headers.properties) {
 				const required = headers.required || []
@@ -262,7 +363,7 @@ export function toOpenAPISchema(
 
 		// Handle cookie parameters
 		if (hooks.cookie) {
-			const cookie = unwrapSchema(hooks.cookie, vendors)
+			const cookie = unwrapReference(unwrapSchema(hooks.cookie, vendors), definitions)
 
 			if (cookie && cookie.type === 'object' && cookie.properties) {
 				const required = cookie.required || []
@@ -477,11 +578,10 @@ export function toOpenAPISchema(
 	}
 
 	// @ts-ignore private property
-	const _schemas = app.getGlobalDefinitions?.().type
 	const schemas = Object.create(null)
 
-	if (_schemas)
-		for (const [name, schema] of Object.entries(_schemas)) {
+	if (definitions)
+		for (const [name, schema] of Object.entries(definitions)) {
 			const jsonSchema = unwrapSchema(schema as any, vendors) as
 				| OpenAPIV3.SchemaObject
 				| undefined
