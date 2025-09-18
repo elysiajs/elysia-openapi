@@ -152,7 +152,7 @@ export const unwrapSchema = (
 				console.warn(
 					'For Zod v3, please install zod-to-json-schema package and use it like this:\n'
 				)
-				console.log(warnings.zod3)
+				console.warn(warnings.zod3)
 			}
 			break
 
