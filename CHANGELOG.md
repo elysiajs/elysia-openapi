@@ -1,3 +1,15 @@
+# 1.4.4 - 20 Sep 2025
+Improvement:
+- cast `exclude.methods` to lowercase when checking for method exclusion
+- type generator: handle non-intersect routes eg. group/guard
+
+Change:
+- type generator: enable type error log
+- type generator: do not remove temp files when debug is enabled
+
+Bug fix:
+- exclude `options` method by default
+
 # 1.4.3 - 18 Sep 2025
 Improvement:
 - unwrap model reference into parameter schema

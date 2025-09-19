@@ -73,6 +73,53 @@ interface OpenAPIGeneratorOptions {
 	 * ! be careful that the folder will be removed after the process ends
 	 */
 	tmpRoot?: string
+
+	/**
+	 * disable log
+	 * @default false
+	 */
+	silent?: boolean
+}
+
+function extractRootObjects(code: string) {
+	const results = []
+	let i = 0
+
+	while (i < code.length) {
+		// find the next colon
+		const colonIdx = code.indexOf(':', i)
+		if (colonIdx === -1) break
+
+		// backtrack to find the key (simple word characters)
+		let keyEnd = colonIdx - 1
+		while (keyEnd >= 0 && /\s/.test(code[keyEnd])) keyEnd--
+		let keyStart = keyEnd
+		while (keyStart >= 0 && /\w/.test(code[keyStart])) keyStart--
+
+		// find the opening brace after colon
+		const braceIdx = code.indexOf('{', colonIdx)
+		if (braceIdx === -1) break
+
+		// scan braces
+		let depth = 0
+		let end = braceIdx
+		for (; end < code.length; end++) {
+			if (code[end] === '{') depth++
+			else if (code[end] === '}') {
+				depth--
+				if (depth === 0) {
+					end++ // move past closing brace
+					break
+				}
+			}
+		}
+
+		results.push(`{${code.slice(keyStart + 1, end)};}`)
+
+		i = end
+	}
+
+	return results
 }
 
 /**
@@ -97,7 +144,8 @@ export const fromTypes =
 			overrideOutputPath,
 			debug = false,
 			compilerOptions,
-			tmpRoot = join(tmpdir(), '.ElysiaAutoOpenAPI')
+			tmpRoot = join(tmpdir(), '.ElysiaAutoOpenAPI'),
+			silent = false
 		}: OpenAPIGeneratorOptions = {}
 	) =>
 	() => {
@@ -177,7 +225,7 @@ export const fromTypes =
 				spawnSync(`tsc`, {
 					shell: true,
 					cwd: tmpRoot,
-					stdio: debug ? 'inherit' : undefined
+					stdio: silent ? undefined : 'inherit'
 				})
 
 				const fileName = targetFilePath
@@ -235,7 +283,7 @@ export const fromTypes =
 							console.warn(tempFiles)
 						}
 					} else {
-						console.log(
+						console.warn(
 							"reason: root folder doesn't exists",
 							join(tmpRoot, 'dist')
 						)
@@ -247,8 +295,10 @@ export const fromTypes =
 
 			const declaration = readFileSync(targetFile, 'utf8')
 
+			// console.log(declaration, targetFile)
+
 			// Check just in case of race-condition
-			if (existsSync(tmpRoot))
+			if (!debug && existsSync(tmpRoot))
 				rmSync(tmpRoot, { recursive: true, force: true })
 
 			let instance = declaration.match(
@@ -282,11 +332,8 @@ export const fromTypes =
 			const routes: AdditionalReference = {}
 
 			// Treaty is a collection of { ... } & { ... } & { ... }
-			// Each route will be intersected with each other
-			// instead of being nested in a route object
-			for (const route of routesString.slice(1).split('} & {')) {
-				// as '} & {' is removed, we need to add it back
-				let schema = TypeBox(`{${route}}`)
+			for (const route of extractRootObjects(routesString)) {
+				let schema = TypeBox(route)
 				if (schema.type !== 'object') continue
 
 				const paths = []
@@ -302,6 +349,9 @@ export const fromTypes =
 				}
 
 				const method = paths.pop()!
+				// For whatever reason, if failed to infer route correctly
+				if (!method) continue
+
 				const path = '/' + paths.join('/')
 				schema = schema.properties
 

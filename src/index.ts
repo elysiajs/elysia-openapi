@@ -7,7 +7,7 @@ import { toOpenAPISchema } from './openapi'
 
 import type { OpenAPIV3 } from 'openapi-types'
 import type { ApiReferenceConfiguration } from '@scalar/types'
-import type { ElysiaOpenAPIConfig, OpenAPIProvider } from './types'
+import type { ElysiaOpenAPIConfig } from './types'
 
 /**
  * Plugin for [elysia](https://github.com/elysiajs/elysia) that auto-generate OpenAPI documentation page.

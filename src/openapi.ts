@@ -87,7 +87,8 @@ openapi({
     zod: zodToJsonSchema
   }
 })`,
-	valibot: `import { toJsonSchema } from '@valibot/to-json-schema'
+	valibot: `import openapi from '@elysiajs/openapi'
+import { toJsonSchema } from '@valibot/to-json-schema'
 
 openapi({
   mapJsonSchema: {
@@ -204,11 +205,13 @@ export function toOpenAPISchema(
 	references?: AdditionalReferences,
 	vendors?: MapJsonSchema
 ) {
-	const {
-		methods: excludeMethods = ['OPTIONS'],
+	let {
+		methods: excludeMethods = ['options'],
 		staticFile: excludeStaticFile = true,
 		tags: excludeTags
 	} = exclude ?? {}
+
+	excludeMethods = excludeMethods.map((method) => method.toLowerCase())
 
 	const excludePaths = Array.isArray(exclude?.paths)
 		? exclude.paths
@@ -248,6 +251,10 @@ export function toOpenAPISchema(
 		const hooks: InputSchema & {
 			detail: Partial<OpenAPIV3.OperationObject>
 		} = route.hooks ?? {}
+
+		if (route.path === '/a') {
+			console.log('H')
+		}
 
 		if (references?.length)
 			for (const reference of references as AdditionalReference[]) {
@@ -327,7 +334,10 @@ export function toOpenAPISchema(
 
 		// Handle query parameters
 		if (hooks.query) {
-			const query = unwrapReference(unwrapSchema(hooks.query, vendors), definitions)
+			const query = unwrapReference(
+				unwrapSchema(hooks.query, vendors),
+				definitions
+			)
 
 			if (query && query.type === 'object' && query.properties) {
 				const required = query.required || []
@@ -345,7 +355,10 @@ export function toOpenAPISchema(
 
 		// Handle header parameters
 		if (hooks.headers) {
-			const headers = unwrapReference(unwrapSchema(hooks.query, vendors), definitions)
+			const headers = unwrapReference(
+				unwrapSchema(hooks.query, vendors),
+				definitions
+			)
 
 			if (headers && headers.type === 'object' && headers.properties) {
 				const required = headers.required || []
@@ -363,7 +376,10 @@ export function toOpenAPISchema(
 
 		// Handle cookie parameters
 		if (hooks.cookie) {
-			const cookie = unwrapReference(unwrapSchema(hooks.cookie, vendors), definitions)
+			const cookie = unwrapReference(
+				unwrapSchema(hooks.cookie, vendors),
+				definitions
+			)
 
 			if (cookie && cookie.type === 'object' && cookie.properties) {
 				const required = cookie.required || []

@@ -40,4 +40,5 @@ export const app = new Elysia()
 		}
 	)
 	.get('/id/:id/name/:name', ({ params }) => params)
+	.get('/a', () => 'hello')
 	.listen(3000)
