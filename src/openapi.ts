@@ -106,13 +106,23 @@ openapi({
 
 const warned = {} as Record<keyof typeof warnings, boolean | undefined>
 
-const unwrapReference = (schema: any, definitions: Record<string, unknown>) => {
-	if (!schema?.$ref) return schema
+const unwrapReference = <T extends OpenAPIV3.SchemaObject | undefined>(
+	schema: T,
+	definitions: Record<string, unknown>
+):
+	| Exclude<T, OpenAPIV3.SchemaObject>
+	| (Omit<NonNullable<T>, 'type'> & {
+			$ref: string
+			type: string | undefined
+	  }) => {
+	// @ts-ignore
+	const ref = schema?.$ref
+	if (!ref) return schema as any
 
-	const name = schema.$ref.slice(schema.$ref.lastIndexOf('/') + 1)
-	if (schema.$ref && definitions[name]) schema = definitions[name]
+	const name = ref.slice(ref.lastIndexOf('/') + 1)
+	if (ref && definitions[name]) schema = definitions[name] as T
 
-	return schema
+	return schema as any
 }
 
 export const unwrapSchema = (
@@ -251,10 +261,6 @@ export function toOpenAPISchema(
 		const hooks: InputSchema & {
 			detail: Partial<OpenAPIV3.OperationObject>
 		} = route.hooks ?? {}
-
-		if (route.path === '/a') {
-			console.log('H')
-		}
 
 		if (references?.length)
 			for (const reference of references as AdditionalReference[]) {
@@ -404,8 +410,10 @@ export function toOpenAPISchema(
 
 			if (body) {
 				// @ts-ignore
-				const { type: _type, description, ...options } = body
-				const type = _type as string | undefined
+				const { type, description, $ref, ...options } = unwrapReference(
+					body,
+					definitions
+				)
 
 				// @ts-ignore
 				if (hooks.parse) {
@@ -461,7 +469,9 @@ export function toOpenAPISchema(
 							type === 'integer' ||
 							type === 'boolean'
 								? {
-										'text/plain': body
+										'text/plain': {
+											schema: body
+										}
 									}
 								: {
 										'application/json': {
@@ -495,13 +505,12 @@ export function toOpenAPISchema(
 					if (!response) continue
 
 					// @ts-ignore Must exclude $ref from root options
-					const { type: _type, description, ...options } = response
-					const type = _type as string | undefined
+					const { type, description, $ref, ...options } =
+						unwrapReference(response, definitions)
 
 					operation.responses[status] = {
 						description:
 							description ?? `Response for status ${status}`,
-						...options,
 						content:
 							type === 'void' ||
 							type === 'null' ||
@@ -528,7 +537,11 @@ export function toOpenAPISchema(
 
 				if (response) {
 					// @ts-ignore
-					const { type: _type, description, ...options } = response
+					const {
+						type: _type,
+						description,
+						...options
+					} = unwrapReference(response, definitions)
 					const type = _type as string | undefined
 
 					// It's a single schema, default to 200

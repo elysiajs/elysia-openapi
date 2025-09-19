@@ -1,3 +1,12 @@
+# 1.4.5 - 20 Sep 2025
+Improvement:
+- reference model now handle content type correctly
+- type doesn't show up when body is primitive type
+
+Bug fix:
+- remove unintentional console.log
+- reference model doesn't show up when using as response
+
 # 1.4.4 - 20 Sep 2025
 Improvement:
 - cast `exclude.methods` to lowercase when checking for method exclusion

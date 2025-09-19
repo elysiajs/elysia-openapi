@@ -10,6 +10,12 @@ export const app = new Elysia()
 			})
 		})
 	)
+	.model({
+		'character.name': t.String(),
+		'character.thing': t.Object({
+			name: t.String()
+		})
+	})
 	.get(
 		'/',
 		() =>
@@ -40,5 +46,16 @@ export const app = new Elysia()
 		}
 	)
 	.get('/id/:id/name/:name', ({ params }) => params)
-	.get('/a', () => 'hello')
+	.post(
+		'/character',
+		() => ({
+			name: 'Elysia'
+		}),
+		{
+			body: 'character.name',
+			response: {
+				200: 'character.thing'
+			}
+		}
+	)
 	.listen(3000)
