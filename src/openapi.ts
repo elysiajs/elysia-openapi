@@ -205,7 +205,6 @@ export function toOpenAPISchema(
 	vendors?: MapJsonSchema
 ) {
 	const {
-		methods: excludeMethods = ['OPTIONS'],
 		staticFile: excludeStaticFile = true,
 		tags: excludeTags
 	} = exclude ?? {}
@@ -215,6 +214,8 @@ export function toOpenAPISchema(
 		: typeof exclude?.paths !== 'undefined'
 			? [exclude.paths]
 			: []
+
+	const excludeMethods = exclude?.methods?.map((method) => method.toLowerCase()) ?? ['options']
 
 	const paths: OpenAPIV3.PathsObject = Object.create(null)
 	// @ts-ignore
@@ -240,7 +241,11 @@ export function toOpenAPISchema(
 
 		if (
 			(excludeStaticFile && route.path.includes('.')) ||
-			excludePaths.includes(route.path) ||
+			excludePaths.some((excludedPath) =>
+				excludedPath instanceof RegExp
+					? excludedPath.test(route.path)
+					: excludedPath === route.path
+			) ||
 			excludeMethods.includes(method)
 		)
 			continue
