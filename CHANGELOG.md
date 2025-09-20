@@ -1,3 +1,7 @@
+# 1.4.8 - 21 Sep 2025
+Improvement:
+- type gen: handle array delimiter correctly
+
 # 1.4.7 - 21 Sep 2025
 Improvement:
 - type gen: remove readonly from generated type to fix readonly tuple

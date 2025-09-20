@@ -14,6 +14,14 @@ export const app = new Elysia()
 			})
 		})
 	)
+	.get(
+		'/const',
+		() =>
+			({
+				name: 'Lilith',
+				friends: ['Sartre', 'Fouco']
+			}) as const
+	)
 	.model({
 		'character.name': t.String(),
 		'character.thing': t.Object({
@@ -21,53 +29,45 @@ export const app = new Elysia()
 		})
 	})
 	.get(
-		'/const',
+		'/',
 		() =>
-			({
-				name: 'Lilith',
-				friends: ['Sartre', 'Fouco']
-			})
+			({ test: 'hello' as const }) as any as
+				| { test: 'hello' }
+				| undefined,
+		{
+			response: {
+				204: withHeaders(
+					t.Void({
+						title: 'Thing',
+						description: 'Void response'
+					}),
+					{
+						'X-Custom-Header': t.Literal('Elysia')
+					}
+				)
+			}
+		}
 	)
-	// .get(
-	// 	'/',
-	// 	() =>
-	// 		({ test: 'hello' as const }) as any as
-	// 			| { test: 'hello' }
-	// 			| undefined,
-	// 	{
-	// 		response: {
-	// 			204: withHeaders(
-	// 				t.Void({
-	// 					title: 'Thing',
-	// 					description: 'Void response'
-	// 				}),
-	// 				{
-	// 					'X-Custom-Header': t.Literal('Elysia')
-	// 				}
-	// 			)
-	// 		}
-	// 	}
-	// )
-	// .post(
-	// 	'/json',
-	// 	({ body, status }) => (Math.random() > 0.5 ? status(418) : body),
-	// 	{
-	// 		body: t.Object({
-	// 			hello: t.String()
-	// 		})
-	// 	}
-	// )
-	// .get('/id/:id/name/:name', ({ params }) => params)
-	// .post(
-	// 	'/character',
-	// 	() => ({
-	// 		name: 'Lilith' as const
-	// 	}),
-	// 	{
-	// 		body: 'character.name',
-	// 		response: z.object({
-	// 			name: z.literal('Lilith')
-	// 		})
-	// 	}
-	// )
+	.post(
+		'/json',
+		({ body, status }) => (Math.random() > 0.5 ? status(418) : body),
+		{
+			body: t.Object({
+				hello: t.String()
+			})
+		}
+	)
+	.get('/id/:id/name/:name', ({ params }) => params)
+	.post(
+		'/character',
+		() => ({
+			name: 'Lilith' as const
+		}),
+		{
+			body: 'character.name',
+			response: z.object({
+				name: z.literal('Lilith')
+			})
+		}
+	)
 	.listen(3000)

@@ -321,10 +321,9 @@ export const fromTypes =
 					)
 				)
 
-			const routesString = wrapStatusInQuote(
-				// Intentionally not adding "}"
-				// to avoid mismatched bracket in loop below
-				instance.slice(3, instance.indexOf('}, {', 4))
+			const routesString = extractRootObjects(instance)[0].replace(
+				matchStatus,
+				'"$1":'
 			)
 
 			const routes: AdditionalReference = {}
