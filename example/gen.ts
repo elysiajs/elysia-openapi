@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia'
 import { openapi, withHeaders } from '../src/index'
 import { fromTypes } from '../src/gen'
 
-export const app = new Elysia()
+export const app = new Elysia({ prefix: '/id' })
 	.use(
 		openapi({
 			references: fromTypes('example/gen.ts', {
