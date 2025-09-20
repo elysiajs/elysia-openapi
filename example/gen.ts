@@ -26,7 +26,7 @@ export const app = new Elysia()
 			({
 				name: 'Lilith',
 				friends: ['Sartre', 'Fouco']
-			})
+			}) as const
 	)
 	.get(
 		'/',
