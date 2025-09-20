@@ -14,20 +14,20 @@ export const app = new Elysia()
 			})
 		})
 	)
-	.get(
-		'/const',
-		() =>
-			({
-				name: 'Lilith',
-				friends: ['Sartre', 'Fouco']
-			}) as const
-	)
 	.model({
 		'character.name': t.String(),
 		'character.thing': t.Object({
 			name: t.String()
 		})
 	})
+	.get(
+		'/const',
+		() =>
+			({
+				name: 'Lilith',
+				friends: ['Sartre', 'Fouco']
+			})
+	)
 	.get(
 		'/',
 		() =>

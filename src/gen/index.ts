@@ -321,15 +321,14 @@ export const fromTypes =
 					)
 				)
 
-			const routesString = extractRootObjects(instance)[0].replace(
-				matchStatus,
-				'"$1":'
+			const routesString = extractRootObjects(
+				instance.replace(matchStatus, '"$1":')
 			)
 
 			const routes: AdditionalReference = {}
 
 			// Treaty is a collection of { ... } & { ... } & { ... }
-			for (const route of extractRootObjects(routesString)) {
+			for (const route of routesString) {
 				let schema = TypeBox(route.replaceAll(/readonly/g, ''))
 				if (schema.type !== 'object') continue
 

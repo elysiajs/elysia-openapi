@@ -10,7 +10,6 @@ import type {
 	ElysiaOpenAPIConfig,
 	MapJsonSchema
 } from './types'
-import { DefaultErrorFunction } from '@sinclair/typebox/errors'
 
 export const capitalize = (word: string) =>
 	word.charAt(0).toUpperCase() + word.slice(1)
@@ -534,7 +533,7 @@ export function toOpenAPISchema(
 							type === 'void' ||
 							type === 'null' ||
 							type === 'undefined'
-								? (response as any)
+								? ({ type, description } as any)
 								: type === 'string' ||
 									  type === 'number' ||
 									  type === 'integer' ||
@@ -570,7 +569,7 @@ export function toOpenAPISchema(
 							type === 'void' ||
 							type === 'null' ||
 							type === 'undefined'
-								? (response as any)
+								? ({ type, description } as any)
 								: type === 'string' ||
 									  type === 'number' ||
 									  type === 'integer' ||
