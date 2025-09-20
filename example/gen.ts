@@ -1,10 +1,14 @@
 import { Elysia, t } from 'elysia'
 import { openapi, withHeaders } from '../src/index'
 import { fromTypes } from '../src/gen'
+import z from 'zod'
 
-export const app = new Elysia({ prefix: '/id' })
+export const app = new Elysia()
 	.use(
 		openapi({
+			mapJsonSchema: {
+				zod: z.toJSONSchema
+			},
 			references: fromTypes('example/gen.ts', {
 				debug: true
 			})
@@ -49,13 +53,13 @@ export const app = new Elysia({ prefix: '/id' })
 	.post(
 		'/character',
 		() => ({
-			name: 'Elysia'
+			name: 'Lilith' as const
 		}),
 		{
 			body: 'character.name',
-			response: {
-				200: 'character.thing'
-			}
+			response: z.object({
+				name: z.literal('Lilith')
+			})
 		}
 	)
 	.listen(3000)

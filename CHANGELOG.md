@@ -1,3 +1,7 @@
+# 1.4.6 - 21 Sep 2025
+Bug fix:
+- type gen: handle inline 200 response schema assignment
+
 # 1.4.5 - 20 Sep 2025
 Improvement:
 - reference model now handle content type correctly

@@ -290,14 +290,31 @@ export function toOpenAPISchema(
 					))
 						if (isValidSchema(schema)) {
 							if (!hooks.response) hooks.response = {}
+							else if (
+								typeof hooks.response !== 'object' ||
+								(hooks.response as TSchema).type ||
+								(hooks.response as TSchema).$ref ||
+								(hooks.response as any)['~standard']
+							)
+								// @ts-ignore
+								hooks.response = {
+									200: hooks.response as any
+								}
 
 							if (
 								!hooks.response[
 									status as keyof (typeof hooks)['response']
 								]
 							)
-								// @ts-ignore
-								hooks.response[status] = schema
+								try {
+									// @ts-ignore
+									hooks.response[status] = schema
+								} catch (error) {
+									console.log(
+										'[@elysiajs/openapi/gen] Failed to assigned response schema'
+									)
+									console.log(error)
+								}
 						}
 			}
 
@@ -496,8 +513,10 @@ export function toOpenAPISchema(
 
 			if (
 				typeof hooks.response === 'object' &&
+				// TypeBox
 				!(hooks.response as TSchema).type &&
-				!(hooks.response as TSchema).$ref
+				!(hooks.response as TSchema).$ref &&
+				!(hooks.response as any)['~standard']
 			) {
 				for (let [status, schema] of Object.entries(hooks.response)) {
 					const response = unwrapSchema(schema, vendors)
