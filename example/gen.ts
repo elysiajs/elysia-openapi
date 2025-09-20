@@ -21,45 +21,53 @@ export const app = new Elysia()
 		})
 	})
 	.get(
-		'/',
+		'/const',
 		() =>
-			({ test: 'hello' as const }) as any as
-				| { test: 'hello' }
-				| undefined,
-		{
-			response: {
-				204: withHeaders(
-					t.Void({
-						title: 'Thing',
-						description: 'Void response'
-					}),
-					{
-						'X-Custom-Header': t.Literal('Elysia')
-					}
-				)
-			}
-		}
-	)
-	.post(
-		'/json',
-		({ body, status }) => (Math.random() > 0.5 ? status(418) : body),
-		{
-			body: t.Object({
-				hello: t.String()
+			({
+				name: 'Lilith',
+				friends: ['Sartre', 'Fouco']
 			})
-		}
 	)
-	.get('/id/:id/name/:name', ({ params }) => params)
-	.post(
-		'/character',
-		() => ({
-			name: 'Lilith' as const
-		}),
-		{
-			body: 'character.name',
-			response: z.object({
-				name: z.literal('Lilith')
-			})
-		}
-	)
+	// .get(
+	// 	'/',
+	// 	() =>
+	// 		({ test: 'hello' as const }) as any as
+	// 			| { test: 'hello' }
+	// 			| undefined,
+	// 	{
+	// 		response: {
+	// 			204: withHeaders(
+	// 				t.Void({
+	// 					title: 'Thing',
+	// 					description: 'Void response'
+	// 				}),
+	// 				{
+	// 					'X-Custom-Header': t.Literal('Elysia')
+	// 				}
+	// 			)
+	// 		}
+	// 	}
+	// )
+	// .post(
+	// 	'/json',
+	// 	({ body, status }) => (Math.random() > 0.5 ? status(418) : body),
+	// 	{
+	// 		body: t.Object({
+	// 			hello: t.String()
+	// 		})
+	// 	}
+	// )
+	// .get('/id/:id/name/:name', ({ params }) => params)
+	// .post(
+	// 	'/character',
+	// 	() => ({
+	// 		name: 'Lilith' as const
+	// 	}),
+	// 	{
+	// 		body: 'character.name',
+	// 		response: z.object({
+	// 			name: z.literal('Lilith')
+	// 		})
+	// 	}
+	// )
 	.listen(3000)

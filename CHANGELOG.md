@@ -1,3 +1,7 @@
+# 1.4.7 - 21 Sep 2025
+Improvement:
+- type gen: remove readonly from generated type to fix readonly tuple
+
 # 1.4.6 - 21 Sep 2025
 Bug fix:
 - type gen: handle inline 200 response schema assignment

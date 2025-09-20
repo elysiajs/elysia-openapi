@@ -295,8 +295,6 @@ export const fromTypes =
 
 			const declaration = readFileSync(targetFile, 'utf8')
 
-			// console.log(declaration, targetFile)
-
 			// Check just in case of race-condition
 			if (!debug && existsSync(tmpRoot))
 				rmSync(tmpRoot, { recursive: true, force: true })
@@ -333,7 +331,7 @@ export const fromTypes =
 
 			// Treaty is a collection of { ... } & { ... } & { ... }
 			for (const route of extractRootObjects(routesString)) {
-				let schema = TypeBox(route)
+				let schema = TypeBox(route.replaceAll(/readonly/g, ''))
 				if (schema.type !== 'object') continue
 
 				const paths = []
