@@ -1,3 +1,7 @@
+# 1.4.9 - 21 Sep 2025
+Improvement:
+- type gen: match special, ad non-english character
+
 # 1.4.8 - 21 Sep 2025
 Improvement:
 - type gen: handle array delimiter correctly

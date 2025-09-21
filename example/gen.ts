@@ -70,4 +70,7 @@ export const app = new Elysia()
 			})
 		}
 	)
+	.get('/no-manual', () => ({
+		name: 'lilith'
+	}))
 	.listen(3000)

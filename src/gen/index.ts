@@ -90,11 +90,16 @@ function extractRootObjects(code: string) {
 		const colonIdx = code.indexOf(':', i)
 		if (colonIdx === -1) break
 
-		// backtrack to find the key (simple word characters)
+		// --- find key ---
+		// walk backwards from colon to find start of key
 		let keyEnd = colonIdx - 1
 		while (keyEnd >= 0 && /\s/.test(code[keyEnd])) keyEnd--
+
 		let keyStart = keyEnd
-		while (keyStart >= 0 && /\w/.test(code[keyStart])) keyStart--
+		// keep going back until we hit a delimiter (whitespace, brace, semicolon, comma, or start of file)
+		while (keyStart >= 0 && !/[\s{};,\n]/.test(code[keyStart])) {
+			keyStart--
+		}
 
 		// find the opening brace after colon
 		const braceIdx = code.indexOf('{', colonIdx)
@@ -321,14 +326,12 @@ export const fromTypes =
 					)
 				)
 
-			const routesString = extractRootObjects(
-				instance.replace(matchStatus, '"$1":')
-			)
-
 			const routes: AdditionalReference = {}
 
 			// Treaty is a collection of { ... } & { ... } & { ... }
-			for (const route of routesString) {
+			for (const route of extractRootObjects(
+				instance.slice(2).replace(matchStatus, '"$1":')
+			)) {
 				let schema = TypeBox(route.replaceAll(/readonly/g, ''))
 				if (schema.type !== 'object') continue
 
