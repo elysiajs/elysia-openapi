@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test'
-import { Kind } from '@sinclair/typebox'
-import { convertEnumToOpenApi, getPossiblePath } from '../src/openapi'
+import { Kind, TAnySchema } from '@sinclair/typebox'
+import { enumToOpenApi, getPossiblePath } from '../src/openapi'
+import { t } from 'elysia'
 
 describe('OpenAPI utilities', () => {
 	it('getPossiblePath', () => {
@@ -18,13 +19,10 @@ describe('convertEnumToOpenApi', () => {
 	it('should convert enum schema to OpenAPI enum format', () => {
 		const expectedSchema = {
 			[Kind]: 'Union',
-			anyOf: [
-				{ const: 'male' },
-				{ const: 'female' }
-			]
+			anyOf: [{ const: 'male' }, { const: 'female' }]
 		}
 
-		const result = convertEnumToOpenApi(expectedSchema)
+		const result = enumToOpenApi(expectedSchema as any)
 
 		expect(result).toEqual({
 			type: 'string',
@@ -39,15 +37,12 @@ describe('convertEnumToOpenApi', () => {
 				name: { type: 'string' },
 				gender: {
 					[Kind]: 'Union',
-					anyOf: [
-						{ const: 'male' },
-						{ const: 'female' }
-					]
+					anyOf: [{ const: 'male' }, { const: 'female' }]
 				}
 			}
 		}
 
-		const result = convertEnumToOpenApi(expectedSchema)
+		const result = enumToOpenApi(expectedSchema as any)
 
 		expect(result).toEqual({
 			type: 'object',
@@ -67,7 +62,7 @@ describe('convertEnumToOpenApi', () => {
 			description: 'Regular string field'
 		}
 
-		const result = convertEnumToOpenApi(expectedSchema)
+		const result = enumToOpenApi(expectedSchema as any)
 
 		expect(result).toEqual(expectedSchema)
 	})

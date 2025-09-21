@@ -1,3 +1,7 @@
+# 1.4.10 - 22 Sep 2025
+Bug fix:
+- [#226](https://github.com/elysiajs/elysia-openapi/issues/266) accept operationId
+
 # 1.4.9 - 21 Sep 2025
 Improvement:
 - type gen: match special, ad non-english character
