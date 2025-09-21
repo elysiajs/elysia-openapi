@@ -1,17 +1,16 @@
 # 1.4.10 - 22 Sep 2025
 Improvement:
 - populate params from path when no schema is provided
-- accept operationId from detail
 - type gen: accept number as path segment
-- add test case for type gen, and OpenAPI schema
 - when failed to convert type to OpenAPI, log the error and continue
 - type gen: use `process.getBuiltinModule` to import native node module conditionally
 - type gen: `fromTypes` now accept direct declaration
 - export `fromTypes` from index
-- [#230](https://github.com/elysiajs/elysia-openapi/issues/230) do not inline Response if is Cloudflare Worker
+- add test case for type gen, and OpenAPI schema
 
 Bug fix:
 - [#226](https://github.com/elysiajs/elysia-openapi/issues/266) accept operationId
+- [#230](https://github.com/elysiajs/elysia-openapi/issues/230) do not inline Response if is Cloudflare Worker
 
 # 1.4.9 - 21 Sep 2025
 Improvement:
