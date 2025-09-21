@@ -395,15 +395,24 @@ export function toOpenAPISchema(
 			)
 
 			if (params && params.type === 'object' && params.properties)
-				for (const [paramName, paramSchema] of Object.entries(
-					params.properties
-				))
+				for (const [name, schema] of Object.entries(params.properties))
 					parameters.push({
-						name: paramName,
+						name,
 						in: 'path',
 						required: true, // Path parameters are always required
-						schema: paramSchema
+						schema
 					})
+		} else {
+			for (const match of route.path.matchAll(/:([^/]+)/g)) {
+				const name = match[1].replace('?', '')
+
+				parameters.push({
+					name,
+					in: 'path',
+					required: true,
+					schema: { type: 'string' }
+				})
+			}
 		}
 
 		// Handle query parameters
@@ -415,14 +424,12 @@ export function toOpenAPISchema(
 
 			if (query && query.type === 'object' && query.properties) {
 				const required = query.required || []
-				for (const [queryName, querySchema] of Object.entries(
-					query.properties
-				))
+				for (const [name, schema] of Object.entries(query.properties))
 					parameters.push({
-						name: queryName,
+						name,
 						in: 'query',
-						required: required.includes(queryName),
-						schema: querySchema
+						required: required.includes(name),
+						schema
 					})
 			}
 		}
@@ -430,20 +437,18 @@ export function toOpenAPISchema(
 		// Handle header parameters
 		if (hooks.headers) {
 			const headers = unwrapReference(
-				unwrapSchema(hooks.query, vendors),
+				unwrapSchema(hooks.headers, vendors),
 				definitions
 			)
 
 			if (headers && headers.type === 'object' && headers.properties) {
 				const required = headers.required || []
-				for (const [headerName, headerSchema] of Object.entries(
-					headers.properties
-				))
+				for (const [name, schema] of Object.entries(headers.properties))
 					parameters.push({
-						name: headerName,
+						name,
 						in: 'header',
-						required: required.includes(headerName),
-						schema: headerSchema
+						required: required.includes(name),
+						schema
 					})
 			}
 		}
@@ -457,14 +462,12 @@ export function toOpenAPISchema(
 
 			if (cookie && cookie.type === 'object' && cookie.properties) {
 				const required = cookie.required || []
-				for (const [cookieName, cookieSchema] of Object.entries(
-					cookie.properties
-				))
+				for (const [name, schema] of Object.entries(cookie.properties))
 					parameters.push({
-						name: cookieName,
+						name,
 						in: 'cookie',
-						required: required.includes(cookieName),
-						schema: cookieSchema
+						required: required.includes(name),
+						schema
 					})
 			}
 		}
@@ -531,6 +534,7 @@ export function toOpenAPISchema(
 				} else {
 					operation.requestBody = {
 						description,
+						required: true,
 						content:
 							type === 'string' ||
 							type === 'number' ||
@@ -551,8 +555,7 @@ export function toOpenAPISchema(
 										'multipart/form-data': {
 											schema: body
 										}
-									},
-						required: true
+									}
 					}
 				}
 			}
@@ -575,7 +578,7 @@ export function toOpenAPISchema(
 					if (!response) continue
 
 					// @ts-ignore Must exclude $ref from root options
-					const { type, description, $ref, ...options } =
+					const { type, description, $ref, ..._options } =
 						unwrapReference(response, definitions)
 
 					operation.responses[status] = {

@@ -1,4 +1,10 @@
 # 1.4.10 - 22 Sep 2025
+Improvement:
+- populate params from path when no schema is provided
+- accept operationId from detail
+- type gen: accept number as path segment
+- add test case for type gen, and OpenAPI schema
+
 Bug fix:
 - [#226](https://github.com/elysiajs/elysia-openapi/issues/266) accept operationId
 

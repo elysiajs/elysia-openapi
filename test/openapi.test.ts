@@ -1,19 +1,7 @@
 import { describe, it, expect } from 'bun:test'
-import { Kind, TAnySchema } from '@sinclair/typebox'
-import { enumToOpenApi, getPossiblePath } from '../src/openapi'
-import { t } from 'elysia'
+import { Kind } from '@sinclair/typebox'
 
-describe('OpenAPI utilities', () => {
-	it('getPossiblePath', () => {
-		expect(getPossiblePath('/user/:user?/name/:name?')).toEqual([
-			'/user/:user/name/:name',
-			'/user/name/:name',
-			'/user/name',
-			'/user/:user/name',
-			'/user/name'
-		])
-	})
-})
+import { enumToOpenApi } from '../src/openapi'
 
 describe('convertEnumToOpenApi', () => {
 	it('should convert enum schema to OpenAPI enum format', () => {

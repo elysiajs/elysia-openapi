@@ -12,13 +12,10 @@ import { TypeBox } from '@sinclair/typemap'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { spawnSync } from 'child_process'
-import { AdditionalReference, AdditionalReferences } from '../types'
-import { Kind, TObject } from '@sinclair/typebox/type'
-import { readdir } from 'fs/promises'
+import { AdditionalReference } from '../types'
 
 const matchRoute = /: Elysia<(.*)>/gs
-const matchStatus = /(\d{3}):/g
-const wrapStatusInQuote = (value: string) => value.replace(matchStatus, '"$1":')
+const numberKey = /(\d+):/g
 
 interface OpenAPIGeneratorOptions {
 	/**
@@ -90,7 +87,6 @@ function extractRootObjects(code: string) {
 		const colonIdx = code.indexOf(':', i)
 		if (colonIdx === -1) break
 
-		// --- find key ---
 		// walk backwards from colon to find start of key
 		let keyEnd = colonIdx - 1
 		while (keyEnd >= 0 && /\s/.test(code[keyEnd])) keyEnd--
@@ -127,6 +123,52 @@ function extractRootObjects(code: string) {
 	return results
 }
 
+export function declarationToJSONSchema(declaration: string) {
+	const routes: AdditionalReference = {}
+
+	// Treaty is a collection of { ... } & { ... } & { ... }
+	for (const route of extractRootObjects(
+		declaration.replace(numberKey, '"$1":')
+	)) {
+		let schema = TypeBox(route.replaceAll(/readonly/g, ''))
+		if (schema.type !== 'object') continue
+
+		const paths = []
+
+		while (true) {
+			const keys = Object.keys(schema.properties)
+			if (keys.length !== 1) break
+
+			paths.push(keys[0])
+
+			schema = schema.properties[keys[0]] as any
+			if (!schema?.properties) break
+		}
+
+		const method = paths.pop()!
+		// For whatever reason, if failed to infer route correctly
+		if (!method) continue
+
+		const path = '/' + paths.join('/')
+		schema = schema.properties
+
+		if (schema?.response?.type === 'object') {
+			const responseSchema: Record<string, any> = {}
+
+			for (const key in schema.response.properties)
+				responseSchema[key] = schema.response.properties[key]
+
+			schema.response = responseSchema
+		}
+
+		if (!routes[path]) routes[path] = {}
+		// @ts-ignore
+		routes[path][method.toLowerCase()] = schema
+	}
+
+	return routes
+}
+
 /**
  * Auto generate OpenAPI schema from Elysia instance
  *
@@ -155,6 +197,10 @@ export const fromTypes =
 	) =>
 	() => {
 		try {
+			// targetFilePath is an actual dts reference
+			if (targetFilePath.trim().startsWith('{'))
+				return declarationToJSONSchema(targetFilePath)
+
 			if (
 				!targetFilePath.endsWith('.ts') &&
 				!targetFilePath.endsWith('.tsx')
@@ -326,49 +372,7 @@ export const fromTypes =
 					)
 				)
 
-			const routes: AdditionalReference = {}
-
-			// Treaty is a collection of { ... } & { ... } & { ... }
-			for (const route of extractRootObjects(
-				instance.slice(2).replace(matchStatus, '"$1":')
-			)) {
-				let schema = TypeBox(route.replaceAll(/readonly/g, ''))
-				if (schema.type !== 'object') continue
-
-				const paths = []
-
-				while (true) {
-					const keys = Object.keys(schema.properties)
-					if (keys.length !== 1) break
-
-					paths.push(keys[0])
-
-					schema = schema.properties[keys[0]] as any
-					if (!schema?.properties) break
-				}
-
-				const method = paths.pop()!
-				// For whatever reason, if failed to infer route correctly
-				if (!method) continue
-
-				const path = '/' + paths.join('/')
-				schema = schema.properties
-
-				if (schema?.response?.type === 'object') {
-					const responseSchema: Record<string, any> = {}
-
-					for (const key in schema.response.properties)
-						responseSchema[key] = schema.response.properties[key]
-
-					schema.response = responseSchema
-				}
-
-				if (!routes[path]) routes[path] = {}
-				// @ts-ignore
-				routes[path][method.toLowerCase()] = schema
-			}
-
-			return routes
+			return declarationToJSONSchema(instance.slice(2))
 		} catch (error) {
 			console.warn(
 				'[@elysiajs/openapi/gen] Failed to generate OpenAPI schema'
