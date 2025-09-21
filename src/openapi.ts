@@ -203,7 +203,7 @@ export const unwrapSchema = (
 	return schema.toJSONSchema?.() ?? schema?.toJsonSchema?.()
 }
 
-const convertEnumToOpenAPI = (schema: any): any => {
+const convertEnumToOpenApi = (schema: any): any => {
 	if (!schema || typeof schema !== 'object') return schema
 
 	if (
@@ -227,7 +227,7 @@ const convertEnumToOpenAPI = (schema: any): any => {
 	if (schema.type === 'object' && schema.properties) {
 		const convertedProperties: any = {}
 		for (const [key, value] of Object.entries(schema.properties)) {
-			convertedProperties[key] = convertEnumToOpenAPI(value)
+			convertedProperties[key] = convertEnumToOpenApi(value)
 		}
 		return {
 			...schema,
@@ -238,7 +238,7 @@ const convertEnumToOpenAPI = (schema: any): any => {
 	if (schema.type === 'array' && schema.items) {
 		return {
 			...schema,
-			items: convertEnumToOpenAPI(schema.items)
+			items: convertEnumToOpenApi(schema.items)
 		}
 	}
 
@@ -390,7 +390,7 @@ export function toOpenAPISchema(
 					params.properties
 				)) {
 					convertedProperties[paramName] =
-						convertEnumToOpenAPI(paramSchema)
+						convertEnumToOpenApi(paramSchema)
 				}
 
 				for (const [paramName, paramSchema] of Object.entries(
@@ -418,7 +418,7 @@ export function toOpenAPISchema(
 					query.properties
 				)) {
 					convertedProperties[queryName] =
-						convertEnumToOpenAPI(querySchema)
+						convertEnumToOpenApi(querySchema)
 				}
 
 				const required = query.required || []
@@ -447,7 +447,7 @@ export function toOpenAPISchema(
 					headers.properties
 				)) {
 					convertedProperties[headerName] =
-						convertEnumToOpenAPI(headerSchema)
+						convertEnumToOpenApi(headerSchema)
 				}
 
 				const required = headers.required || []
@@ -476,7 +476,7 @@ export function toOpenAPISchema(
 					cookie.properties
 				)) {
 					convertedProperties[cookieName] =
-						convertEnumToOpenAPI(cookieSchema)
+						convertEnumToOpenApi(cookieSchema)
 				}
 
 				const required = cookie.required || []
@@ -500,7 +500,8 @@ export function toOpenAPISchema(
 			const body = unwrapSchema(hooks.body, vendors)
 
 			if (body) {
-				const convertedBody = convertEnumToOpenAPI(body)
+				const convertedBody = convertEnumToOpenApi(body)
+
 				// @ts-ignore
 				const { type: _type, description, $ref, ...options } = convertedBody
 				const type = _type as string | undefined
@@ -592,7 +593,7 @@ export function toOpenAPISchema(
 
 					if (!response) continue
 
-					const convertedResponse = convertEnumToOpenAPI(response)
+					const convertedResponse = convertEnumToOpenApi(response)
 					// @ts-ignore Must exclude $ref from root options
 					const { type: _type, description, $ref, ...options } = convertedResponse
 					const type = _type as string | undefined
@@ -625,7 +626,7 @@ export function toOpenAPISchema(
 				const response = unwrapSchema(hooks.response as any, vendors)
 
 				if (response) {
-					const convertedResponse = convertEnumToOpenAPI(response)
+					const convertedResponse = convertEnumToOpenApi(response)
 
 					// @ts-ignore
 					const {
