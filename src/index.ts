@@ -49,7 +49,7 @@ export const openapi = <
 
 			return app.get(
 				path,
-				new Response(
+				() => new Response(
 					provider === 'swagger-ui'
 						? SwaggerUIRender(info, {
 								url: relativePath,
