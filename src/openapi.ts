@@ -203,6 +203,48 @@ export const unwrapSchema = (
 	return schema.toJSONSchema?.() ?? schema?.toJsonSchema?.()
 }
 
+const convertEnumToOpenAPI = (schema: any): any => {
+	if (!schema || typeof schema !== 'object') return schema
+
+	if (
+		schema[Kind] === 'Union' &&
+		schema.anyOf &&
+		Array.isArray(schema.anyOf) &&
+		schema.anyOf.length > 0 &&
+		schema.anyOf.every(
+			(item: any) =>
+				item && typeof item === 'object' && item.const !== undefined
+		)
+	) {
+		const enumValues = schema.anyOf.map((item: any) => item.const)
+
+		return {
+			type: 'string',
+			enum: enumValues
+		}
+	}
+
+	if (schema.type === 'object' && schema.properties) {
+		const convertedProperties: any = {}
+		for (const [key, value] of Object.entries(schema.properties)) {
+			convertedProperties[key] = convertEnumToOpenAPI(value)
+		}
+		return {
+			...schema,
+			properties: convertedProperties
+		}
+	}
+
+	if (schema.type === 'array' && schema.items) {
+		return {
+			...schema,
+			items: convertEnumToOpenAPI(schema.items)
+		}
+	}
+
+	return schema
+}
+
 /**
  * Converts Elysia routes to OpenAPI 3.0.3 paths schema
  * @param routes Array of Elysia route objects
@@ -342,9 +384,17 @@ export function toOpenAPISchema(
 				definitions
 			)
 
-			if (params && params.type === 'object' && params.properties)
+			if (params && params.type === 'object' && params.properties) {
+				const convertedProperties: any = {}
 				for (const [paramName, paramSchema] of Object.entries(
 					params.properties
+				)) {
+					convertedProperties[paramName] =
+						convertEnumToOpenAPI(paramSchema)
+				}
+
+				for (const [paramName, paramSchema] of Object.entries(
+					convertedProperties
 				))
 					parameters.push({
 						name: paramName,
@@ -352,6 +402,7 @@ export function toOpenAPISchema(
 						required: true, // Path parameters are always required
 						schema: paramSchema
 					})
+			}
 		}
 
 		// Handle query parameters
@@ -362,9 +413,17 @@ export function toOpenAPISchema(
 			)
 
 			if (query && query.type === 'object' && query.properties) {
-				const required = query.required || []
+				const convertedProperties: any = {}
 				for (const [queryName, querySchema] of Object.entries(
 					query.properties
+				)) {
+					convertedProperties[queryName] =
+						convertEnumToOpenAPI(querySchema)
+				}
+
+				const required = query.required || []
+				for (const [queryName, querySchema] of Object.entries(
+					convertedProperties
 				))
 					parameters.push({
 						name: queryName,
@@ -383,9 +442,17 @@ export function toOpenAPISchema(
 			)
 
 			if (headers && headers.type === 'object' && headers.properties) {
-				const required = headers.required || []
+				const convertedProperties: any = {}
 				for (const [headerName, headerSchema] of Object.entries(
 					headers.properties
+				)) {
+					convertedProperties[headerName] =
+						convertEnumToOpenAPI(headerSchema)
+				}
+
+				const required = headers.required || []
+				for (const [headerName, headerSchema] of Object.entries(
+					convertedProperties
 				))
 					parameters.push({
 						name: headerName,
@@ -404,9 +471,17 @@ export function toOpenAPISchema(
 			)
 
 			if (cookie && cookie.type === 'object' && cookie.properties) {
-				const required = cookie.required || []
+				const convertedProperties: any = {}
 				for (const [cookieName, cookieSchema] of Object.entries(
 					cookie.properties
+				)) {
+					convertedProperties[cookieName] =
+						convertEnumToOpenAPI(cookieSchema)
+				}
+
+				const required = cookie.required || []
+				for (const [cookieName, cookieSchema] of Object.entries(
+					convertedProperties
 				))
 					parameters.push({
 						name: cookieName,
@@ -425,11 +500,10 @@ export function toOpenAPISchema(
 			const body = unwrapSchema(hooks.body, vendors)
 
 			if (body) {
+				const convertedBody = convertEnumToOpenAPI(body)
 				// @ts-ignore
-				const { type, description, $ref, ...options } = unwrapReference(
-					body,
-					definitions
-				)
+				const { type: _type, description, $ref, ...options } = convertedBody
+				const type = _type as string | undefined
 
 				// @ts-ignore
 				if (hooks.parse) {
@@ -447,26 +521,24 @@ export function toOpenAPISchema(
 						switch (parser.fn) {
 							case 'text':
 							case 'text/plain':
-								content['text/plain'] = { schema: body }
+								content['text/plain'] = { schema: convertedBody }
 								continue
 
 							case 'urlencoded':
 							case 'application/x-www-form-urlencoded':
 								content['application/x-www-form-urlencoded'] = {
-									schema: body
+									schema: convertedBody
 								}
 								continue
 
 							case 'json':
 							case 'application/json':
-								content['application/json'] = { schema: body }
+								content['application/json'] = { schema: convertedBody }
 								continue
 
 							case 'formdata':
 							case 'multipart/form-data':
-								content['multipart/form-data'] = {
-									schema: body
-								}
+								content['multipart/form-data'] = { schema: convertedBody }
 								continue
 						}
 					}
@@ -485,19 +557,17 @@ export function toOpenAPISchema(
 							type === 'integer' ||
 							type === 'boolean'
 								? {
-										'text/plain': {
-											schema: body
-										}
+										'text/plain': convertedBody
 									}
 								: {
 										'application/json': {
-											schema: body
+											schema: convertedBody
 										},
 										'application/x-www-form-urlencoded': {
-											schema: body
+											schema: convertedBody
 										},
 										'multipart/form-data': {
-											schema: body
+											schema: convertedBody
 										}
 									},
 						required: true
@@ -522,9 +592,10 @@ export function toOpenAPISchema(
 
 					if (!response) continue
 
+					const convertedResponse = convertEnumToOpenAPI(response)
 					// @ts-ignore Must exclude $ref from root options
-					const { type, description, $ref, ...options } =
-						unwrapReference(response, definitions)
+					const { type: _type, description, $ref, ...options } = convertedResponse
+					const type = _type as string | undefined
 
 					operation.responses[status] = {
 						description:
@@ -533,19 +604,19 @@ export function toOpenAPISchema(
 							type === 'void' ||
 							type === 'null' ||
 							type === 'undefined'
-								? ({ type, description } as any)
+								? (convertedResponse as any)
 								: type === 'string' ||
 									  type === 'number' ||
 									  type === 'integer' ||
 									  type === 'boolean'
 									? {
 											'text/plain': {
-												schema: response
+												schema: convertedResponse
 											}
 										}
 									: {
 											'application/json': {
-												schema: response
+												schema: convertedResponse
 											}
 										}
 					}
@@ -554,12 +625,14 @@ export function toOpenAPISchema(
 				const response = unwrapSchema(hooks.response as any, vendors)
 
 				if (response) {
+					const convertedResponse = convertEnumToOpenAPI(response)
+
 					// @ts-ignore
 					const {
 						type: _type,
 						description,
 						...options
-					} = unwrapReference(response, definitions)
+					} = convertedResponse
 					const type = _type as string | undefined
 
 					// It's a single schema, default to 200
@@ -569,19 +642,19 @@ export function toOpenAPISchema(
 							type === 'void' ||
 							type === 'null' ||
 							type === 'undefined'
-								? ({ type, description } as any)
+								? (convertedResponse as any)
 								: type === 'string' ||
 									  type === 'number' ||
 									  type === 'integer' ||
 									  type === 'boolean'
 									? {
 											'text/plain': {
-												schema: response
+												schema: convertedResponse
 											}
 										}
 									: {
 											'application/json': {
-												schema: response
+												schema: convertedResponse
 											}
 										}
 					}
