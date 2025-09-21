@@ -203,7 +203,7 @@ export const unwrapSchema = (
 	return schema.toJSONSchema?.() ?? schema?.toJsonSchema?.()
 }
 
-const convertEnumToOpenApi = (schema: any): any => {
+export const convertEnumToOpenApi = (schema: any): any => {
 	if (!schema || typeof schema !== 'object') return schema
 
 	if (
