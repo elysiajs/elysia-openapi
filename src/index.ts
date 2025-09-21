@@ -131,6 +131,7 @@ export const openapi = <
 	return app
 }
 
+export { fromTypes } from './gen'
 export { toOpenAPISchema, withHeaders } from './openapi'
 export type { ElysiaOpenAPIConfig }
 

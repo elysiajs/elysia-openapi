@@ -1,23 +1,10 @@
-import type { InputSchema, InternalRoute, TSchema } from 'elysia'
-import {
-	readFileSync,
-	mkdirSync,
-	writeFileSync,
-	rmSync,
-	existsSync,
-	readdirSync
-} from 'fs'
 import { TypeBox } from '@sinclair/typemap'
-
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { spawnSync } from 'child_process'
-import { AdditionalReference } from '../types'
+import type { AdditionalReference } from '../types'
 
 const matchRoute = /: Elysia<(.*)>/gs
 const numberKey = /(\d+):/g
 
-interface OpenAPIGeneratorOptions {
+export interface OpenAPIGeneratorOptions {
 	/**
 	 * Path to tsconfig.json
 	 * @default tsconfig.json
@@ -78,7 +65,12 @@ interface OpenAPIGeneratorOptions {
 	silent?: boolean
 }
 
-function extractRootObjects(code: string) {
+/**
+ * Polyfill path join for environments without Node.js path module
+ */
+const join = (...parts: string[]) => parts.join('/').replace(/\/{1,}/g, '/')
+
+export function extractRootObjects(code: string) {
 	const results = []
 	let i = 0
 
@@ -183,7 +175,7 @@ export const fromTypes =
 		 *
 		 * The path must export an Elysia instance
 		 */
-		targetFilePath: string,
+		targetFilePath = 'src/index.ts',
 		{
 			tsconfigPath = 'tsconfig.json',
 			instanceName,
@@ -191,16 +183,30 @@ export const fromTypes =
 			overrideOutputPath,
 			debug = false,
 			compilerOptions,
-			tmpRoot = join(tmpdir(), '.ElysiaAutoOpenAPI'),
+			tmpRoot,
 			silent = false
 		}: OpenAPIGeneratorOptions = {}
 	) =>
 	() => {
-		try {
-			// targetFilePath is an actual dts reference
-			if (targetFilePath.trim().startsWith('{'))
-				return declarationToJSONSchema(targetFilePath)
+		// targetFilePath is an actual dts reference
+		if (targetFilePath.trim().startsWith('{'))
+			return declarationToJSONSchema(targetFilePath)
 
+		if (
+			typeof process === 'undefined' ||
+			typeof process.getBuiltinModule !== 'function'
+		)
+			throw new Error(
+				'[@elysiajs/openapi/gen] `fromTypes` from file path is only available in Node.js/Bun environment or environments'
+			)
+
+		const fs = process.getBuiltinModule('fs')
+		if (!fs)
+			throw new Error(
+				'[@elysiajs/openapi/gen] `fromTypes` require `fs` module which is not available in this environment'
+			)
+
+		try {
 			if (
 				!targetFilePath.endsWith('.ts') &&
 				!targetFilePath.endsWith('.tsx')
@@ -214,27 +220,38 @@ export const fromTypes =
 				? targetFilePath
 				: join(projectRoot, targetFilePath)
 
-			if (!existsSync(src))
+			if (!fs.existsSync(src))
 				throw new Error(
 					`Couldn't find "${targetFilePath}" from ${projectRoot}`
 				)
 
 			let targetFile: string
 
+			if (!tmpRoot) {
+				const os = process.getBuiltinModule('os')
+
+				tmpRoot = join(
+					os && typeof os.tmpdir === 'function'
+						? os.tmpdir()
+						: projectRoot,
+					'.ElysiaAutoOpenAPI'
+				)
+			}
+
 			// Since it's already a declaration file
 			// We can just read it directly
 			if (targetFilePath.endsWith('.d.ts')) targetFile = targetFilePath
 			else {
-				if (existsSync(tmpRoot))
-					rmSync(tmpRoot, { recursive: true, force: true })
+				if (fs.existsSync(tmpRoot))
+					fs.rmSync(tmpRoot, { recursive: true, force: true })
 
-				mkdirSync(tmpRoot, { recursive: true })
+				fs.mkdirSync(tmpRoot, { recursive: true })
 
 				const tsconfig = tsconfigPath.startsWith('/')
 					? tsconfigPath
 					: join(projectRoot, tsconfigPath)
 
-				let extendsRef = existsSync(tsconfig)
+				let extendsRef = fs.existsSync(tsconfig)
 					? `"extends": "${join(projectRoot, 'tsconfig.json')}",`
 					: ''
 
@@ -250,7 +267,7 @@ export const fromTypes =
 					distDir = distDir.replace(/\\/g, '/')
 				}
 
-				writeFileSync(
+				fs.writeFileSync(
 					join(tmpRoot, 'tsconfig.json'),
 					`{
 	${extendsRef}
@@ -272,6 +289,17 @@ export const fromTypes =
 	"include": ["${src}"]
 }`
 				)
+
+				const child_process = process.getBuiltinModule('child_process')
+				if (!child_process)
+					throw new Error(
+						'[@elysiajs/openapi/gen] `fromTypes` declaration generation require `child_process` module which is not available in this environment'
+					)
+				const { spawnSync } = child_process
+				if (typeof spawnSync !== 'function')
+					throw new Error(
+						'[@elysiajs/openapi/gen] `fromTypes` declaration generation require child_process.spawnSync which is not available in this environment'
+					)
 
 				spawnSync(`tsc`, {
 					shell: true,
@@ -298,7 +326,7 @@ export const fromTypes =
 						fileName.slice(fileName.indexOf('/') + 1)
 					)
 
-				let existed = existsSync(targetFile)
+				let existed = fs.existsSync(targetFile)
 
 				if (!existed && !overrideOutputPath) {
 					targetFile = join(
@@ -308,21 +336,22 @@ export const fromTypes =
 						fileName
 					)
 
-					existed = existsSync(targetFile)
+					existed = fs.existsSync(targetFile)
 				}
 
 				if (!existed) {
-					rmSync(join(tmpRoot, 'tsconfig.json'))
+					fs.rmSync(join(tmpRoot, 'tsconfig.json'))
 
 					console.warn(
 						'[@elysiajs/openapi/gen] Failed to generate OpenAPI schema'
 					)
 					console.warn("Couldn't find generated declaration file")
 
-					if (existsSync(join(tmpRoot, 'dist'))) {
-						const tempFiles = readdirSync(join(tmpRoot, 'dist'), {
-							recursive: true
-						})
+					if (fs.existsSync(join(tmpRoot, 'dist'))) {
+						const tempFiles = fs
+							.readdirSync(join(tmpRoot, 'dist'), {
+								recursive: true
+							})
 							.filter((x) => x.toString().endsWith('.d.ts'))
 							.map((x) => `- ${x}`)
 							.join('\n')
@@ -344,11 +373,11 @@ export const fromTypes =
 				}
 			}
 
-			const declaration = readFileSync(targetFile, 'utf8')
+			const declaration = fs.readFileSync(targetFile, 'utf8')
 
 			// Check just in case of race-condition
-			if (!debug && existsSync(tmpRoot))
-				rmSync(tmpRoot, { recursive: true, force: true })
+			if (!debug && fs.existsSync(tmpRoot))
+				fs.rmSync(tmpRoot, { recursive: true, force: true })
 
 			let instance = declaration.match(
 				instanceName
@@ -381,7 +410,7 @@ export const fromTypes =
 
 			return
 		} finally {
-			if (!debug && existsSync(tmpRoot))
-				rmSync(tmpRoot, { recursive: true, force: true })
+			if (!debug && tmpRoot && fs.existsSync(tmpRoot))
+				fs.rmSync(tmpRoot, { recursive: true, force: true })
 		}
 	}

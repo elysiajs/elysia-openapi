@@ -4,8 +4,6 @@ import { JSONSchema, Schema } from 'effect'
 
 import { openapi, withHeaders } from '../src/index'
 
-// const a = z.toJSONSchema(z.void())
-
 const app = new Elysia()
 	.use(
 		openapi({
