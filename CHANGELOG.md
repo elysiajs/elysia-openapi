@@ -4,6 +4,7 @@ Improvement:
 - accept operationId from detail
 - type gen: accept number as path segment
 - add test case for type gen, and OpenAPI schema
+- when failed to convert type to OpenAPI, log the error and continue
 
 Bug fix:
 - [#226](https://github.com/elysiajs/elysia-openapi/issues/266) accept operationId

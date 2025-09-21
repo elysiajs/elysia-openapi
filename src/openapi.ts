@@ -139,69 +139,78 @@ export const unwrapSchema = (
 	// @ts-ignore
 	const vendor = schema['~standard'].vendor
 
-	if (mapJsonSchema?.[vendor] && typeof mapJsonSchema[vendor] === 'function')
-		return enumToOpenApi(mapJsonSchema[vendor](schema))
+	try {
+		if (
+			mapJsonSchema?.[vendor] &&
+			typeof mapJsonSchema[vendor] === 'function'
+		)
+			return enumToOpenApi(mapJsonSchema[vendor](schema))
 
-	switch (vendor) {
-		case 'zod':
-			if (warned.zod4 || warned.zod3) break
-
-			console.warn(
-				"[@elysiajs/openapi] Zod doesn't provide JSON Schema method on the schema"
-			)
-
-			if ('_zod' in schema) {
-				warned.zod4 = true
+		switch (vendor) {
+			case 'zod':
+				if (warned.zod4 || warned.zod3) break
 
 				console.warn(
-					'For Zod v4, please provide z.toJSONSchema as follows:\n'
+					"[@elysiajs/openapi] Zod doesn't provide JSON Schema method on the schema"
 				)
-				console.warn(warnings.zod4)
-			} else {
-				warned.zod3 = true
+
+				if ('_zod' in schema) {
+					warned.zod4 = true
+
+					console.warn(
+						'For Zod v4, please provide z.toJSONSchema as follows:\n'
+					)
+					console.warn(warnings.zod4)
+				} else {
+					warned.zod3 = true
+
+					console.warn(
+						'For Zod v3, please install zod-to-json-schema package and use it like this:\n'
+					)
+					console.warn(warnings.zod3)
+				}
+				break
+
+			case 'valibot':
+				if (warned.valibot) break
+				warned.valibot = true
 
 				console.warn(
-					'For Zod v3, please install zod-to-json-schema package and use it like this:\n'
+					'[@elysiajs/openapi] Valibot require a separate package for JSON Schema conversion'
 				)
-				console.warn(warnings.zod3)
-			}
-			break
+				console.warn(
+					'Please install @valibot/to-json-schema package and use it like this:\n'
+				)
+				console.warn(warnings.valibot)
+				break
 
-		case 'valibot':
-			if (warned.valibot) break
-			warned.valibot = true
+			case 'effect':
+				// Effect does not support toJsonSchema method
+				// Users have to use third party library like effect-zod
+				if (warned.effect) break
+				warned.effect = true
 
-			console.warn(
-				'[@elysiajs/openapi] Valibot require a separate package for JSON Schema conversion'
-			)
-			console.warn(
-				'Please install @valibot/to-json-schema package and use it like this:\n'
-			)
-			console.warn(warnings.valibot)
-			break
+				console.warn(
+					"[@elysiajs/openapi] Effect Schema doesn't provide JSON Schema method on the schema"
+				)
+				console.warn(
+					"please provide JSONSchema from 'effect' package as follows:\n"
+				)
+				console.warn(warnings.effect)
+				break
+		}
 
-		case 'effect':
-			// Effect does not support toJsonSchema method
-			// Users have to use third party library like effect-zod
-			if (warned.effect) break
-			warned.effect = true
+		if (vendor === 'arktype')
+			// @ts-ignore
+			return enumToOpenApi(schema?.toJsonSchema?.())
 
-			console.warn(
-				"[@elysiajs/openapi] Effect Schema doesn't provide JSON Schema method on the schema"
-			)
-			console.warn(
-				"please provide JSONSchema from 'effect' package as follows:\n"
-			)
-			console.warn(warnings.effect)
-			break
+		return enumToOpenApi(
+			// @ts-ignore
+			schema.toJSONSchema?.() ?? schema?.toJsonSchema?.()
+		)
+	} catch (error) {
+		console.warn(error)
 	}
-
-	if (vendor === 'arktype')
-		// @ts-ignore
-		return enumToOpenApi(schema?.toJsonSchema?.())
-
-	// @ts-ignore
-	return enumToOpenApi(schema.toJSONSchema?.() ?? schema?.toJsonSchema?.())
 }
 
 export const enumToOpenApi = <
