@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'bun:test'
-import { Kind } from '@sinclair/typebox'
 
 import { declarationToJSONSchema, fromTypes } from '../../src/gen'
 
