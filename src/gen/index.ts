@@ -174,6 +174,7 @@ export const fromTypes =
 		 * Path to file where Elysia instance is
 		 *
 		 * The path must export an Elysia instance
+		 * or a literal TypeScript declaration
 		 */
 		targetFilePath = 'src/index.ts',
 		{
@@ -188,8 +189,11 @@ export const fromTypes =
 		}: OpenAPIGeneratorOptions = {}
 	) =>
 	() => {
-		// targetFilePath is an actual dts reference
-		if (targetFilePath.trim().startsWith('{'))
+		// targetFilePath is an actual TypeScript declaration
+		if (
+			targetFilePath.trimStart().startsWith('{') &&
+			targetFilePath.trimEnd().endsWith('}')
+		)
 			return declarationToJSONSchema(targetFilePath)
 
 		if (

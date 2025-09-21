@@ -13,6 +13,7 @@ function isCloudflareWorker() {
 	try {
 		// Check for the presence of caches.default, which is a global in Workers
 		if (
+			// @ts-ignore
 			typeof caches !== 'undefined' &&
 			// @ts-ignore
 			typeof caches.default !== 'undefined'
