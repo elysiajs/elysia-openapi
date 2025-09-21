@@ -8,6 +8,7 @@ Improvement:
 - type gen: use `process.getBuiltinModule` to import native node module conditionally
 - type gen: `fromTypes` now accept direct declaration
 - export `fromTypes` from index
+- [#230](https://github.com/elysiajs/elysia-openapi/issues/230) do not inline Response if is Cloudflare Worker
 
 Bug fix:
 - [#226](https://github.com/elysiajs/elysia-openapi/issues/266) accept operationId

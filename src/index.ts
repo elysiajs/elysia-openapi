@@ -9,6 +9,28 @@ import type { OpenAPIV3 } from 'openapi-types'
 import type { ApiReferenceConfiguration } from '@scalar/types'
 import type { ElysiaOpenAPIConfig } from './types'
 
+function isCloudflareWorker() {
+	try {
+		// Check for the presence of caches.default, which is a global in Workers
+		if (
+			typeof caches !== 'undefined' &&
+			// @ts-ignore
+			typeof caches.default !== 'undefined'
+		)
+			return true
+
+		// @ts-ignore
+		if (typeof WebSocketPair !== 'undefined') {
+			return true
+		}
+	} catch (e) {
+		// If accessing these globals throws an error, it's likely not a Worker
+		return false
+	}
+
+	return false
+}
+
 /**
  * Plugin for [elysia](https://github.com/elysiajs/elysia) that auto-generate OpenAPI documentation page.
  *
@@ -47,8 +69,7 @@ export const openapi = <
 		.use((app) => {
 			if (provider === null) return app
 
-			return app.get(
-				path,
+			const page = () =>
 				new Response(
 					provider === 'swagger-ui'
 						? SwaggerUIRender(info, {
@@ -70,13 +91,13 @@ export const openapi = <
 							'content-type': 'text/html; charset=utf8'
 						}
 					}
-				),
-				{
-					detail: {
-						hide: true
-					}
+				)
+
+			return app.get(path, isCloudflareWorker() ? page : page(), {
+				detail: {
+					hide: true
 				}
-			)
+			})
 		})
 		.get(
 			specPath,
