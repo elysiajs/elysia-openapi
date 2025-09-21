@@ -1,5 +1,6 @@
 # 1.4.10 - 22 Sep 2025
 Improvement:
+- [#267](https://github.com/elysiajs/elysia-openapi/pull/267) enum eupport for OpenAPI
 - populate params from path when no schema is provided
 - type gen: accept number as path segment
 - when failed to convert type to OpenAPI, log the error and continue
