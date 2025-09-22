@@ -314,7 +314,11 @@ export function toOpenAPISchema(
 
 		if (
 			(excludeStaticFile && route.path.includes('.')) ||
-			excludePaths.includes(route.path) ||
+			excludePaths.some((excludedPath) =>
+				excludedPath instanceof RegExp
+					? excludedPath.test(route.path)
+					: excludedPath === route.path
+			) ||
 			excludeMethods.includes(method)
 		)
 			continue
