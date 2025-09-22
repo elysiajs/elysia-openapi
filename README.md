@@ -83,7 +83,7 @@ The endpoint to expose OpenAPI documentation frontend
 
 OpenAPI documentation frontend between:
 - [Scalar](https://github.com/scalar/scalar)
-- [SwaggerUI](https://github.com/openapi-api/openapi-ui)
+- [SwaggerUI](https://github.com/swagger-api/swagger-ui)
 - null: disable frontend
 
 ## references
