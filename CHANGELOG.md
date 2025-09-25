@@ -1,3 +1,8 @@
+# 1.4.11 - 25 Sep 2025
+Improvement:
+- add `embedSpec` option to embed spec into documentation page
+- add `data-configuration` for adding custom Scalar configuration
+
 # 1.4.10 - 22 Sep 2025
 Improvement:
 - [#267](https://github.com/elysiajs/elysia-openapi/pull/267) enum eupport for OpenAPI

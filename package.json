@@ -1,6 +1,6 @@
 {
     "name": "@elysiajs/openapi",
-    "version": "1.4.10",
+    "version": "1.4.11",
     "description": "Plugin for Elysia to auto-generate API documentation",
     "author": {
         "name": "saltyAom",

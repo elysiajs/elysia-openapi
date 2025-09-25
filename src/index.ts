@@ -50,7 +50,8 @@ export const openapi = <
 	swagger,
 	scalar,
 	references,
-	mapJsonSchema
+	mapJsonSchema,
+	embedSpec
 }: ElysiaOpenAPIConfig<Enabled, Path> = {}) => {
 	if (!enabled) return new Elysia({ name: '@elysiajs/openapi' })
 
@@ -66,6 +67,38 @@ export const openapi = <
 	let totalRoutes = 0
 	let cachedSchema: OpenAPIV3.Document | undefined
 
+	const toFullSchema = ({
+		paths,
+		components: { schemas }
+	}: ReturnType<typeof toOpenAPISchema>): OpenAPIV3.Document => {
+		return (cachedSchema = {
+			openapi: '3.0.3',
+			...documentation,
+			tags: !exclude?.tags
+				? documentation.tags
+				: documentation.tags?.filter(
+						(tag) => !exclude.tags?.includes(tag.name)
+					),
+			info: {
+				title: 'Elysia Documentation',
+				description: 'Development documentation',
+				version: '0.0.0',
+				...documentation.info
+			},
+			paths: {
+				...paths,
+				...documentation.paths
+			},
+			components: {
+				...documentation.components,
+				schemas: {
+					...schemas,
+					...(documentation.components?.schemas as any)
+				}
+			}
+		})
+	}
+
 	const app = new Elysia({ name: '@elysiajs/openapi' })
 		.use((app) => {
 			if (provider === null) return app
@@ -80,13 +113,30 @@ export const openapi = <
 								autoDarkMode: true,
 								...swagger
 							})
-						: ScalarRender(info, {
-								url: relativePath,
-								version: 'latest',
-								cdn: `https://cdn.jsdelivr.net/npm/@scalar/api-reference@${scalar?.version ?? 'latest'}/dist/browser/standalone.min.js`,
-								...(scalar as ApiReferenceConfiguration),
-								_integration: 'elysiajs'
-							}),
+						: ScalarRender(
+								info,
+								{
+									url: relativePath,
+									version: 'latest',
+									cdn: `https://cdn.jsdelivr.net/npm/@scalar/api-reference@${scalar?.version ?? 'latest'}/dist/browser/standalone.min.js`,
+									...(scalar as ApiReferenceConfiguration),
+									_integration: 'elysiajs'
+								},
+								embedSpec
+									? JSON.stringify(
+											totalRoutes === app.routes.length
+												? cachedSchema
+												: toFullSchema(
+														toOpenAPISchema(
+															app,
+															exclude,
+															references,
+															mapJsonSchema
+														)
+													)
+										)
+									: undefined
+							),
 					{
 						headers: {
 							'content-type': 'text/html; charset=utf8'
@@ -94,50 +144,27 @@ export const openapi = <
 					}
 				)
 
-			return app.get(path, isCloudflareWorker() ? page : page(), {
-				detail: {
-					hide: true
+			return app.get(
+				path,
+				embedSpec || isCloudflareWorker() ? page : page(),
+				{
+					detail: {
+						hide: true
+					}
 				}
-			})
+			)
 		})
 		.get(
 			specPath,
-			function openAPISchema() {
-				if (totalRoutes === app.routes.length) return cachedSchema
+			function openAPISchema(): OpenAPIV3.Document {
+				if (totalRoutes === app.routes.length && cachedSchema)
+					return cachedSchema
 
 				totalRoutes = app.routes.length
 
-				const {
-					paths,
-					components: { schemas }
-				} = toOpenAPISchema(app, exclude, references, mapJsonSchema)
-
-				return (cachedSchema = {
-					openapi: '3.0.3',
-					...documentation,
-					tags: !exclude?.tags
-						? documentation.tags
-						: documentation.tags?.filter(
-								(tag) => !exclude.tags?.includes(tag.name)
-							),
-					info: {
-						title: 'Elysia Documentation',
-						description: 'Development documentation',
-						version: '0.0.0',
-						...documentation.info
-					},
-					paths: {
-						...paths,
-						...documentation.paths
-					},
-					components: {
-						...documentation.components,
-						schemas: {
-							...schemas,
-							...(documentation.components?.schemas as any)
-						}
-					}
-				} satisfies OpenAPIV3.Document)
+				return toFullSchema(
+					toOpenAPISchema(app, exclude, references, mapJsonSchema)
+				)
 			},
 			{
 				error({ error }) {

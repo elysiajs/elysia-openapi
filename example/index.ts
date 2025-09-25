@@ -7,6 +7,7 @@ import { openapi, withHeaders } from '../src/index'
 const app = new Elysia()
 	.use(
 		openapi({
+			embedSchema: true,
 			mapJsonSchema: {
 				zod: z.toJSONSchema
 			}
