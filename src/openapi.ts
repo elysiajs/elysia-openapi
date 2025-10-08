@@ -314,7 +314,12 @@ export function toOpenAPISchema(
 
 		if (
 			(excludeStaticFile && route.path.includes('.')) ||
-			excludePaths.includes(route.path) ||
+			excludePaths.some(match => {
+				if (typeof match === 'string') {
+					return match === route.path
+				}
+				return match.exec(route.path);
+			}) ||
 			excludeMethods.includes(method)
 		)
 			continue
