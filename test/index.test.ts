@@ -272,4 +272,38 @@ describe('Swagger', () => {
 		const response = await res.json()
 		expect(Object.keys(response.paths['/all'])).toBeArrayOfSize(8)
 	})
+
+	// https://github.com/elysiajs/elysia-openapi/issues/273
+  it('should exclude routes with specified tags', async () => {
+    const app = new Elysia()
+      .use(
+        openapi({
+          exclude: {
+            tags: ['internal']
+          }
+        })
+      )
+      .get('/', () => 'index')
+      .get('/healthz', () => ({ status: 'ok' }), {
+        detail: {
+          tags: ['internal']
+        }
+      })
+
+    await app.modules
+
+		const res = await app.handle(req('/openapi/json'))
+		expect(res.status).toBe(200)
+		const response = await res.json()
+		
+    // Check that only root path is included
+    expect(Object.keys(response.paths)).toEqual(['/'])
+    
+    // Verify /healthz is excluded
+    expect(response.paths['/healthz']).toBeUndefined()
+    
+    // Verify root path is included and has GET method
+    expect(response.paths['/']).toBeDefined()
+    expect(response.paths['/'].get).toBeDefined()
+  })
 })
