@@ -7,9 +7,13 @@ import { openapi, withHeaders } from '../src/index'
 const app = new Elysia()
 	.use(
 		openapi({
-			embedSchema: true,
 			mapJsonSchema: {
 				zod: z.toJSONSchema
+			},
+			scalar: {
+				onBeforeRequest: ({ request }) => {
+					console.info('onBeforeRequest', request.method, request.url)
+				}
 			}
 		})
 	)
