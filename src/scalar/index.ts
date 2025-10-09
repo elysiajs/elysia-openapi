@@ -1,5 +1,4 @@
 import type { OpenAPIV3 } from 'openapi-types'
-import type { ApiReferenceConfiguration } from '@scalar/types'
 import { ElysiaOpenAPIConfig } from '../types'
 
 const elysiaCSS = `.light-mode {
@@ -123,10 +122,75 @@ const elysiaCSS = `.light-mode {
   filter: opacity(4%) saturate(200%);
 }`
 
+const serializeArrayWithFunctions = (arr: unknown[]): string => {
+  return `[${arr.map((item) => (typeof item === 'function' ? item.toString() : JSON.stringify(item))).join(', ')}]`
+}
+
+/**
+ * Generates the complete HTML script block required for Scalar setup, based on the provided configuration.
+ *
+ * This includes:
+ * 1. The Scalar bundle script.
+ * 2. An inline script that initializes the Scalar reference with user-provided configuration data.
+ *
+ * This function is adapted from the Scalar Core implementation.
+ * @see https://github.com/scalar/scalar/blob/main/packages/core/src/libs/html-rendering/html-rendering.ts#L93
+ *
+ * @param config - The Scalar configuration object.
+ * @returns A string containing all required <script> tags for embedding Scalar.
+ */
+export function getScriptTags({
+  cdn,
+  ...configuration
+}: NonNullable<ElysiaOpenAPIConfig['scalar']>) {
+  const restConfig = { ...configuration }
+
+  const functionProps: string[] = []
+
+  for (const [key, value] of Object.entries(configuration) as [
+    keyof typeof configuration,
+    unknown
+  ][]) {
+    if (typeof value === 'function') {
+      functionProps.push(`"${key}": ${value.toString()}`)
+      delete restConfig[key]
+    } else if (
+      Array.isArray(value) &&
+      value.some((item) => typeof item === 'function')
+    ) {
+      // Handle arrays that contain functions (like plugins)
+      functionProps.push(
+        `"${key}": ${serializeArrayWithFunctions(value)}`
+      )
+      delete restConfig[key]
+    }
+  }
+
+  // Stringify the rest of the configuration
+  const configString = JSON.stringify(restConfig, null, 2)
+    .split('\n')
+    .map((line, index) => (index === 0 ? line : '      ' + line))
+    .join('\n')
+    .replace(/\s*}$/, '') // Remove the closing brace and any whitespace before it
+
+  const functionPropsString = functionProps.length
+    ? `,\n        ${functionProps.join(',\n        ')}\n      }`
+    : '}'
+
+  return `
+    <!-- Scalar script -->
+    <script src="${cdn ?? 'https://cdn.jsdelivr.net/npm/@scalar/api-reference'}"></script>
+
+    <!-- Initialize the Scalar API Reference using provided config -->
+    <script type="text/javascript">
+      Scalar.createApiReference('#app', ${configString}${functionPropsString})
+    </script>`
+}
+
 export const ScalarRender = (
-	info: OpenAPIV3.InfoObject,
-	config: NonNullable<ElysiaOpenAPIConfig['scalar']>,
-	embedSpec?: string
+  info: OpenAPIV3.InfoObject,
+  config: NonNullable<ElysiaOpenAPIConfig['scalar']>,
+  embedSpec?: string
 ) => `<!doctype html>
 <html>
   <head>
@@ -153,18 +217,7 @@ export const ScalarRender = (
     </style>
   </head>
   <body>
-    <script
-      id="api-reference"
-      data-configuration='${JSON.stringify(
-			Object.assign(
-				config,
-				{
-					content: embedSpec
-				}
-			)
-		)}'
-    >
-    </script>
-    <script src="${config.cdn}" crossorigin></script>
+    <div id="app"></div>
+    ${getScriptTags(Object.assign(config, { content: embedSpec }) )}
   </body>
 </html>`
