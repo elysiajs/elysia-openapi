@@ -2,7 +2,7 @@ import { t, type AnyElysia, type TSchema, type InputSchema } from 'elysia'
 import type { HookContainer, StandardSchemaV1Like } from 'elysia/types'
 
 import type { OpenAPIV3 } from 'openapi-types'
-import { Kind, type TProperties } from '@sinclair/typebox'
+import { Kind, TAnySchema, type TProperties } from '@sinclair/typebox'
 
 import type {
 	AdditionalReference,
@@ -10,7 +10,7 @@ import type {
 	ElysiaOpenAPIConfig,
 	MapJsonSchema
 } from './types'
-import { DefaultErrorFunction } from '@sinclair/typebox/errors'
+import { defineConfig } from 'tsup'
 
 export const capitalize = (word: string) =>
 	word.charAt(0).toUpperCase() + word.slice(1)
@@ -87,7 +87,8 @@ openapi({
     zod: zodToJsonSchema
   }
 })`,
-	valibot: `import { toJsonSchema } from '@valibot/to-json-schema'
+	valibot: `import openapi from '@elysiajs/openapi'
+import { toJsonSchema } from '@valibot/to-json-schema'
 
 openapi({
   mapJsonSchema: {
@@ -105,13 +106,23 @@ openapi({
 
 const warned = {} as Record<keyof typeof warnings, boolean | undefined>
 
-const unwrapReference = (schema: any, definitions: Record<string, unknown>) => {
-	if (!schema?.$ref) return schema
+const unwrapReference = <T extends OpenAPIV3.SchemaObject | undefined>(
+	schema: T,
+	definitions: Record<string, unknown>
+):
+	| Exclude<T, OpenAPIV3.SchemaObject>
+	| (Omit<NonNullable<T>, 'type'> & {
+			$ref: string
+			type: string | undefined
+	  }) => {
+	// @ts-ignore
+	const ref = schema?.$ref
+	if (!ref) return schema as any
 
-	const name = schema.$ref.slice(schema.$ref.lastIndexOf('/') + 1)
-	if (schema.$ref && definitions[name]) schema = definitions[name]
+	const name = ref.slice(ref.lastIndexOf('/') + 1)
+	if (ref && definitions[name]) schema = definitions[name] as T
 
-	return schema
+	return enumToOpenApi(schema) as any
 }
 
 export const unwrapSchema = (
@@ -121,76 +132,137 @@ export const unwrapSchema = (
 	if (!schema) return
 
 	if (typeof schema === 'string') schema = toRef(schema)
-	if (Kind in schema) return schema
+	if (Kind in schema) return enumToOpenApi(schema)
 
 	if (Kind in schema || !schema?.['~standard']) return
 
 	// @ts-ignore
 	const vendor = schema['~standard'].vendor
 
-	if (mapJsonSchema?.[vendor] && typeof mapJsonSchema[vendor] === 'function')
-		return mapJsonSchema[vendor](schema)
+	try {
+		if (
+			mapJsonSchema?.[vendor] &&
+			typeof mapJsonSchema[vendor] === 'function'
+		)
+			return enumToOpenApi(mapJsonSchema[vendor](schema))
 
-	switch (vendor) {
-		case 'zod':
-			if (warned.zod4 || warned.zod3) break
-
-			console.warn(
-				"[@elysiajs/openapi] Zod doesn't provide JSON Schema method on the schema"
-			)
-
-			if ('_zod' in schema) {
-				warned.zod4 = true
+		switch (vendor) {
+			case 'zod':
+				if (warned.zod4 || warned.zod3) break
 
 				console.warn(
-					'For Zod v4, please provide z.toJSONSchema as follows:\n'
+					"[@elysiajs/openapi] Zod doesn't provide JSON Schema method on the schema"
 				)
-				console.warn(warnings.zod4)
-			} else {
-				warned.zod3 = true
+
+				if ('_zod' in schema) {
+					warned.zod4 = true
+
+					console.warn(
+						'For Zod v4, please provide z.toJSONSchema as follows:\n'
+					)
+					console.warn(warnings.zod4)
+				} else {
+					warned.zod3 = true
+
+					console.warn(
+						'For Zod v3, please install zod-to-json-schema package and use it like this:\n'
+					)
+					console.warn(warnings.zod3)
+				}
+				break
+
+			case 'valibot':
+				if (warned.valibot) break
+				warned.valibot = true
 
 				console.warn(
-					'For Zod v3, please install zod-to-json-schema package and use it like this:\n'
+					'[@elysiajs/openapi] Valibot require a separate package for JSON Schema conversion'
 				)
-				console.warn(warnings.zod3)
-			}
-			break
+				console.warn(
+					'Please install @valibot/to-json-schema package and use it like this:\n'
+				)
+				console.warn(warnings.valibot)
+				break
 
-		case 'valibot':
-			if (warned.valibot) break
-			warned.valibot = true
+			case 'effect':
+				// Effect does not support toJsonSchema method
+				// Users have to use third party library like effect-zod
+				if (warned.effect) break
+				warned.effect = true
 
-			console.warn(
-				'[@elysiajs/openapi] Valibot require a separate package for JSON Schema conversion'
-			)
-			console.warn(
-				'Please install @valibot/to-json-schema package and use it like this:\n'
-			)
-			console.warn(warnings.valibot)
-			break
+				console.warn(
+					"[@elysiajs/openapi] Effect Schema doesn't provide JSON Schema method on the schema"
+				)
+				console.warn(
+					"please provide JSONSchema from 'effect' package as follows:\n"
+				)
+				console.warn(warnings.effect)
+				break
+		}
 
-		case 'effect':
-			// Effect does not support toJsonSchema method
-			// Users have to use third party library like effect-zod
-			if (warned.effect) break
-			warned.effect = true
+		if (vendor === 'arktype')
+			// @ts-ignore
+			return enumToOpenApi(schema?.toJsonSchema?.())
 
-			console.warn(
-				"[@elysiajs/openapi] Effect Schema doesn't provide JSON Schema method on the schema"
+		return enumToOpenApi(
+			// @ts-ignore
+			schema.toJSONSchema?.() ?? schema?.toJsonSchema?.()
+		)
+	} catch (error) {
+		console.warn(error)
+	}
+}
+
+export const enumToOpenApi = <
+	T extends
+		| TAnySchema
+		| OpenAPIV3.SchemaObject
+		| OpenAPIV3.ReferenceObject
+		| undefined
+>(
+	_schema: T
+): T => {
+	if (!_schema || typeof _schema !== 'object') return _schema
+
+	if (Kind in _schema) {
+		const schema = _schema as TAnySchema
+
+		if (
+			schema[Kind] === 'Union' &&
+			schema.anyOf &&
+			Array.isArray(schema.anyOf) &&
+			schema.anyOf.length > 0 &&
+			schema.anyOf.every(
+				(item) =>
+					item && typeof item === 'object' && item.const !== undefined
 			)
-			console.warn(
-				"please provide JSONSchema from 'effect' package as follows:\n"
-			)
-			console.warn(warnings.effect)
-			break
+		)
+			return {
+				type: 'string',
+				enum: schema.anyOf.map((item) => item.const)
+			} as any
 	}
 
-	if (vendor === 'arktype')
-		// @ts-ignore
-		return schema?.toJsonSchema?.()
+	const schema = _schema as OpenAPIV3.SchemaObject
 
-	// @ts-ignore
-	return schema.toJSONSchema?.() ?? schema?.toJsonSchema?.()
+	if (schema.type === 'object' && schema.properties) {
+		const properties: Record<string, unknown> = {}
+		for (const [key, value] of Object.entries(schema.properties))
+			properties[key] = enumToOpenApi(value)
+
+		return {
+			...schema,
+			properties
+		} as T
+	}
+
+	if (schema.type === 'array' && schema.items)
+		return {
+			...schema,
+			items: enumToOpenApi(schema.items)
+		} as T
+
+	return schema as T
 }
 
 /**
@@ -204,11 +276,13 @@ export function toOpenAPISchema(
 	references?: AdditionalReferences,
 	vendors?: MapJsonSchema
 ) {
-	const {
-		methods: excludeMethods = ['OPTIONS'],
+	let {
+		methods: excludeMethods = ['options'],
 		staticFile: excludeStaticFile = true,
 		tags: excludeTags
 	} = exclude ?? {}
+
+	excludeMethods = excludeMethods.map((method) => method.toLowerCase())
 
 	const excludePaths = Array.isArray(exclude?.paths)
 		? exclude.paths
@@ -277,14 +351,30 @@ export function toOpenAPISchema(
 					))
 						if (isValidSchema(schema)) {
 							if (!hooks.response) hooks.response = {}
+							else if (
+								typeof hooks.response !== 'object' ||
+								(hooks.response as TSchema).type ||
+								(hooks.response as TSchema).$ref ||
+								(hooks.response as any)['~standard']
+							)
+								hooks.response = {
+									200: hooks.response as any
+								}
 
 							if (
 								!hooks.response[
 									status as keyof (typeof hooks)['response']
 								]
 							)
-								// @ts-ignore
-								hooks.response[status] = schema
+								try {
+									// @ts-ignore
+									hooks.response[status] = schema
+								} catch (error) {
+									console.log(
+										'[@elysiajs/openapi/gen] Failed to assigned response schema'
+									)
+									console.log(error)
+								}
 						}
 			}
 
@@ -314,67 +404,79 @@ export function toOpenAPISchema(
 			)
 
 			if (params && params.type === 'object' && params.properties)
-				for (const [paramName, paramSchema] of Object.entries(
-					params.properties
-				))
+				for (const [name, schema] of Object.entries(params.properties))
 					parameters.push({
-						name: paramName,
+						name,
 						in: 'path',
 						required: true, // Path parameters are always required
-						schema: paramSchema
+						schema
 					})
+		} else {
+			for (const match of route.path.matchAll(/:([^/]+)/g)) {
+				const name = match[1].replace('?', '')
+
+				parameters.push({
+					name,
+					in: 'path',
+					required: true,
+					schema: { type: 'string' }
+				})
+			}
 		}
 
 		// Handle query parameters
 		if (hooks.query) {
-			const query = unwrapReference(unwrapSchema(hooks.query, vendors), definitions)
+			const query = unwrapReference(
+				unwrapSchema(hooks.query, vendors),
+				definitions
+			)
 
 			if (query && query.type === 'object' && query.properties) {
 				const required = query.required || []
-				for (const [queryName, querySchema] of Object.entries(
-					query.properties
-				))
+				for (const [name, schema] of Object.entries(query.properties))
 					parameters.push({
-						name: queryName,
+						name,
 						in: 'query',
-						required: required.includes(queryName),
-						schema: querySchema
+						required: required.includes(name),
+						schema
 					})
 			}
 		}
 
 		// Handle header parameters
 		if (hooks.headers) {
-			const headers = unwrapReference(unwrapSchema(hooks.query, vendors), definitions)
+			const headers = unwrapReference(
+				unwrapSchema(hooks.headers, vendors),
+				definitions
+			)
 
 			if (headers && headers.type === 'object' && headers.properties) {
 				const required = headers.required || []
-				for (const [headerName, headerSchema] of Object.entries(
-					headers.properties
-				))
+				for (const [name, schema] of Object.entries(headers.properties))
 					parameters.push({
-						name: headerName,
+						name,
 						in: 'header',
-						required: required.includes(headerName),
-						schema: headerSchema
+						required: required.includes(name),
+						schema
 					})
 			}
 		}
 
 		// Handle cookie parameters
 		if (hooks.cookie) {
-			const cookie = unwrapReference(unwrapSchema(hooks.cookie, vendors), definitions)
+			const cookie = unwrapReference(
+				unwrapSchema(hooks.cookie, vendors),
+				definitions
+			)
 
 			if (cookie && cookie.type === 'object' && cookie.properties) {
 				const required = cookie.required || []
-				for (const [cookieName, cookieSchema] of Object.entries(
-					cookie.properties
-				))
+				for (const [name, schema] of Object.entries(cookie.properties))
 					parameters.push({
-						name: cookieName,
+						name,
 						in: 'cookie',
-						required: required.includes(cookieName),
-						schema: cookieSchema
+						required: required.includes(name),
+						schema
 					})
 			}
 		}
@@ -388,8 +490,10 @@ export function toOpenAPISchema(
 
 			if (body) {
 				// @ts-ignore
-				const { type: _type, description, ...options } = body
-				const type = _type as string | undefined
+				const { type, description, $ref, ...options } = unwrapReference(
+					body,
+					definitions
+				)
 
 				// @ts-ignore
 				if (hooks.parse) {
@@ -439,13 +543,16 @@ export function toOpenAPISchema(
 				} else {
 					operation.requestBody = {
 						description,
+						required: true,
 						content:
 							type === 'string' ||
 							type === 'number' ||
 							type === 'integer' ||
 							type === 'boolean'
 								? {
-										'text/plain': body
+										'text/plain': {
+											schema: body
+										}
 									}
 								: {
 										'application/json': {
@@ -457,8 +564,7 @@ export function toOpenAPISchema(
 										'multipart/form-data': {
 											schema: body
 										}
-									},
-						required: true
+									}
 					}
 				}
 			}
@@ -470,8 +576,10 @@ export function toOpenAPISchema(
 
 			if (
 				typeof hooks.response === 'object' &&
+				// TypeBox
 				!(hooks.response as TSchema).type &&
-				!(hooks.response as TSchema).$ref
+				!(hooks.response as TSchema).$ref &&
+				!(hooks.response as any)['~standard']
 			) {
 				for (let [status, schema] of Object.entries(hooks.response)) {
 					const response = unwrapSchema(schema, vendors)
@@ -479,18 +587,17 @@ export function toOpenAPISchema(
 					if (!response) continue
 
 					// @ts-ignore Must exclude $ref from root options
-					const { type: _type, description, ...options } = response
-					const type = _type as string | undefined
+					const { type, description, $ref, ..._options } =
+						unwrapReference(response, definitions)
 
 					operation.responses[status] = {
 						description:
 							description ?? `Response for status ${status}`,
-						...options,
 						content:
 							type === 'void' ||
 							type === 'null' ||
 							type === 'undefined'
-								? (response as any)
+								? ({ type, description } as any)
 								: type === 'string' ||
 									  type === 'number' ||
 									  type === 'integer' ||
@@ -512,7 +619,11 @@ export function toOpenAPISchema(
 
 				if (response) {
 					// @ts-ignore
-					const { type: _type, description, ...options } = response
+					const {
+						type: _type,
+						description,
+						...options
+					} = unwrapReference(response, definitions)
 					const type = _type as string | undefined
 
 					// It's a single schema, default to 200
@@ -522,7 +633,7 @@ export function toOpenAPISchema(
 							type === 'void' ||
 							type === 'null' ||
 							type === 'undefined'
-								? (response as any)
+								? ({ type, description } as any)
 								: type === 'string' ||
 									  type === 'number' ||
 									  type === 'integer' ||
@@ -543,7 +654,8 @@ export function toOpenAPISchema(
 		}
 
 		for (let path of getPossiblePath(route.path)) {
-			const operationId = toOperationId(route.method, path)
+			const operationId =
+				hooks.detail?.operationId ?? toOperationId(route.method, path)
 
 			path = path.replace(/:([^/]+)/g, '{$1}')
 

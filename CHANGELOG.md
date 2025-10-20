@@ -1,3 +1,60 @@
+# 1.4.11 - 25 Sep 2025
+Improvement:
+- add `embedSpec` option to embed spec into documentation page
+- add `data-configuration` for adding custom Scalar configuration
+
+# 1.4.10 - 22 Sep 2025
+Improvement:
+- [#267](https://github.com/elysiajs/elysia-openapi/pull/267) enum eupport for OpenAPI
+- populate params from path when no schema is provided
+- type gen: accept number as path segment
+- when failed to convert type to OpenAPI, log the error and continue
+- type gen: use `process.getBuiltinModule` to import native node module conditionally
+- type gen: `fromTypes` now accept direct declaration
+- export `fromTypes` from index
+- add test case for type gen, and OpenAPI schema
+
+Bug fix:
+- [#226](https://github.com/elysiajs/elysia-openapi/issues/266) accept operationId
+- [#230](https://github.com/elysiajs/elysia-openapi/issues/230) do not inline Response if is Cloudflare Worker
+
+# 1.4.9 - 21 Sep 2025
+Improvement:
+- type gen: match special, ad non-english character
+
+# 1.4.8 - 21 Sep 2025
+Improvement:
+- type gen: handle array delimiter correctly
+
+# 1.4.7 - 21 Sep 2025
+Improvement:
+- type gen: remove readonly from generated type to fix readonly tuple
+
+# 1.4.6 - 21 Sep 2025
+Bug fix:
+- type gen: handle inline 200 response schema assignment
+
+# 1.4.5 - 20 Sep 2025
+Improvement:
+- reference model now handle content type correctly
+- type doesn't show up when body is primitive type
+
+Bug fix:
+- remove unintentional console.log
+- reference model doesn't show up when using as response
+
+# 1.4.4 - 20 Sep 2025
+Improvement:
+- cast `exclude.methods` to lowercase when checking for method exclusion
+- type generator: handle non-intersect routes eg. group/guard
+
+Change:
+- type generator: enable type error log
+- type generator: do not remove temp files when debug is enabled
+
+Bug fix:
+- exclude `options` method by default
+
 # 1.4.3 - 18 Sep 2025
 Improvement:
 - unwrap model reference into parameter schema

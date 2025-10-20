@@ -8,8 +8,8 @@ export type OpenAPIProvider = 'scalar' | 'swagger-ui' | null
 type MaybeArray<T> = T | T[]
 
 export type MapJsonSchema = { [vendor: string]: Function } & {
-	[vendor in // schema['~standard'].vendor
-	| 'zod'
+	[vendor in  // schema['~standard'].vendor
+		| 'zod'
 		| 'effect'
 		| 'valibot'
 		| 'arktype'
@@ -100,6 +100,15 @@ export interface ElysiaOpenAPIConfig<
 	 * Additional reference for each endpoint
 	 */
 	references?: AdditionalReferences
+
+	/**
+	 * Embed OpenAPI schema to provider body if possible
+	 *
+	 * This is highly discouraged, unless you really have to inline OpenAPI schema
+	 *
+	 * @default false
+	 */
+	embedSpec?: boolean
 
 	/**
 	 * Mapping function from Standard schema to OpenAPI schema

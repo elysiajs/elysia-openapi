@@ -1,19 +1,8 @@
 import { Elysia, t } from 'elysia'
-import { openapi, withHeaders } from '../src/index'
-import { fromTypes } from '../src/gen'
-import z from 'zod'
+import { openapi, withHeaders } from '../../src'
+import { fromTypes } from '../../src/gen'
 
 export const app = new Elysia()
-	.use(
-		openapi({
-			mapJsonSchema: {
-				zod: z.toJSONSchema
-			},
-			references: fromTypes('example/gen.ts', {
-				debug: true
-			})
-		})
-	)
 	.model({
 		'character.name': t.String(),
 		'character.thing': t.Object({
@@ -48,7 +37,6 @@ export const app = new Elysia()
 			}
 		}
 	)
-	.get('/hello/2', () => 'hello')
 	.post(
 		'/json',
 		({ body, status }) => (Math.random() > 0.5 ? status(418) : body),
@@ -65,13 +53,9 @@ export const app = new Elysia()
 			name: 'Lilith' as const
 		}),
 		{
-			body: 'character.name',
-			response: z.object({
-				name: z.literal('Lilith')
-			})
+			body: 'character.name'
 		}
 	)
 	.get('/no-manual', () => ({
 		name: 'lilith'
 	}))
-	.listen(3000)

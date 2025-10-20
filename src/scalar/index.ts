@@ -125,7 +125,8 @@ const elysiaCSS = `.light-mode {
 
 export const ScalarRender = (
 	info: OpenAPIV3.InfoObject,
-	config: NonNullable<ElysiaOpenAPIConfig['scalar']>
+	config: NonNullable<ElysiaOpenAPIConfig['scalar']>,
+	embedSpec?: string
 ) => `<!doctype html>
 <html>
   <head>
@@ -154,7 +155,14 @@ export const ScalarRender = (
   <body>
     <script
       id="api-reference"
-      data-url="${config.url}"
+      data-configuration='${JSON.stringify(
+			Object.assign(
+				config,
+				{
+					content: embedSpec
+				}
+			)
+		)}'
     >
     </script>
     <script src="${config.cdn}" crossorigin></script>

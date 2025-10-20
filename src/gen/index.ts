@@ -1,26 +1,10 @@
-import type { InputSchema, InternalRoute, TSchema } from 'elysia'
-import {
-	readFileSync,
-	mkdirSync,
-	writeFileSync,
-	rmSync,
-	existsSync,
-	readdirSync
-} from 'fs'
 import { TypeBox } from '@sinclair/typemap'
-
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { spawnSync } from 'child_process'
-import { AdditionalReference, AdditionalReferences } from '../types'
-import { Kind, TObject } from '@sinclair/typebox/type'
-import { readdir } from 'fs/promises'
+import type { AdditionalReference } from '../types'
 
 const matchRoute = /: Elysia<(.*)>/gs
-const matchStatus = /(\d{3}):/g
-const wrapStatusInQuote = (value: string) => value.replace(matchStatus, '"$1":')
+const numberKey = /(\d+):/g
 
-interface OpenAPIGeneratorOptions {
+export interface OpenAPIGeneratorOptions {
 	/**
 	 * Path to tsconfig.json
 	 * @default tsconfig.json
@@ -73,6 +57,108 @@ interface OpenAPIGeneratorOptions {
 	 * ! be careful that the folder will be removed after the process ends
 	 */
 	tmpRoot?: string
+
+	/**
+	 * disable log
+	 * @default false
+	 */
+	silent?: boolean
+}
+
+/**
+ * Polyfill path join for environments without Node.js path module
+ */
+const join = (...parts: string[]) => parts.join('/').replace(/\/{1,}/g, '/')
+
+export function extractRootObjects(code: string) {
+	const results = []
+	let i = 0
+
+	while (i < code.length) {
+		// find the next colon
+		const colonIdx = code.indexOf(':', i)
+		if (colonIdx === -1) break
+
+		// walk backwards from colon to find start of key
+		let keyEnd = colonIdx - 1
+		while (keyEnd >= 0 && /\s/.test(code[keyEnd])) keyEnd--
+
+		let keyStart = keyEnd
+		// keep going back until we hit a delimiter (whitespace, brace, semicolon, comma, or start of file)
+		while (keyStart >= 0 && !/[\s{};,\n]/.test(code[keyStart])) {
+			keyStart--
+		}
+
+		// find the opening brace after colon
+		const braceIdx = code.indexOf('{', colonIdx)
+		if (braceIdx === -1) break
+
+		// scan braces
+		let depth = 0
+		let end = braceIdx
+		for (; end < code.length; end++) {
+			if (code[end] === '{') depth++
+			else if (code[end] === '}') {
+				depth--
+				if (depth === 0) {
+					end++ // move past closing brace
+					break
+				}
+			}
+		}
+
+		results.push(`{${code.slice(keyStart + 1, end)};}`)
+
+		i = end
+	}
+
+	return results
+}
+
+export function declarationToJSONSchema(declaration: string) {
+	const routes: AdditionalReference = {}
+
+	// Treaty is a collection of { ... } & { ... } & { ... }
+	for (const route of extractRootObjects(
+		declaration.replace(numberKey, '"$1":')
+	)) {
+		let schema = TypeBox(route.replaceAll(/readonly/g, ''))
+		if (schema.type !== 'object') continue
+
+		const paths = []
+
+		while (true) {
+			const keys = Object.keys(schema.properties)
+			if (keys.length !== 1) break
+
+			paths.push(keys[0])
+
+			schema = schema.properties[keys[0]] as any
+			if (!schema?.properties) break
+		}
+
+		const method = paths.pop()!
+		// For whatever reason, if failed to infer route correctly
+		if (!method) continue
+
+		const path = '/' + paths.join('/')
+		schema = schema.properties
+
+		if (schema?.response?.type === 'object') {
+			const responseSchema: Record<string, any> = {}
+
+			for (const key in schema.response.properties)
+				responseSchema[key] = schema.response.properties[key]
+
+			schema.response = responseSchema
+		}
+
+		if (!routes[path]) routes[path] = {}
+		// @ts-ignore
+		routes[path][method.toLowerCase()] = schema
+	}
+
+	return routes
 }
 
 /**
@@ -88,8 +174,9 @@ export const fromTypes =
 		 * Path to file where Elysia instance is
 		 *
 		 * The path must export an Elysia instance
+		 * or a literal TypeScript declaration
 		 */
-		targetFilePath: string,
+		targetFilePath = 'src/index.ts',
 		{
 			tsconfigPath = 'tsconfig.json',
 			instanceName,
@@ -97,10 +184,32 @@ export const fromTypes =
 			overrideOutputPath,
 			debug = false,
 			compilerOptions,
-			tmpRoot = join(tmpdir(), '.ElysiaAutoOpenAPI')
+			tmpRoot,
+			silent = false
 		}: OpenAPIGeneratorOptions = {}
 	) =>
 	() => {
+		// targetFilePath is an actual TypeScript declaration
+		if (
+			targetFilePath.trimStart().startsWith('{') &&
+			targetFilePath.trimEnd().endsWith('}')
+		)
+			return declarationToJSONSchema(targetFilePath)
+
+		if (
+			typeof process === 'undefined' ||
+			typeof process.getBuiltinModule !== 'function'
+		)
+			throw new Error(
+				'[@elysiajs/openapi/gen] `fromTypes` from file path is only available in Node.js/Bun environment or environments'
+			)
+
+		const fs = process.getBuiltinModule('fs')
+		if (!fs)
+			throw new Error(
+				'[@elysiajs/openapi/gen] `fromTypes` require `fs` module which is not available in this environment'
+			)
+
 		try {
 			if (
 				!targetFilePath.endsWith('.ts') &&
@@ -115,27 +224,38 @@ export const fromTypes =
 				? targetFilePath
 				: join(projectRoot, targetFilePath)
 
-			if (!existsSync(src))
+			if (!fs.existsSync(src))
 				throw new Error(
 					`Couldn't find "${targetFilePath}" from ${projectRoot}`
 				)
 
 			let targetFile: string
 
+			if (!tmpRoot) {
+				const os = process.getBuiltinModule('os')
+
+				tmpRoot = join(
+					os && typeof os.tmpdir === 'function'
+						? os.tmpdir()
+						: projectRoot,
+					'.ElysiaAutoOpenAPI'
+				)
+			}
+
 			// Since it's already a declaration file
 			// We can just read it directly
 			if (targetFilePath.endsWith('.d.ts')) targetFile = targetFilePath
 			else {
-				if (existsSync(tmpRoot))
-					rmSync(tmpRoot, { recursive: true, force: true })
+				if (fs.existsSync(tmpRoot))
+					fs.rmSync(tmpRoot, { recursive: true, force: true })
 
-				mkdirSync(tmpRoot, { recursive: true })
+				fs.mkdirSync(tmpRoot, { recursive: true })
 
 				const tsconfig = tsconfigPath.startsWith('/')
 					? tsconfigPath
 					: join(projectRoot, tsconfigPath)
 
-				let extendsRef = existsSync(tsconfig)
+				let extendsRef = fs.existsSync(tsconfig)
 					? `"extends": "${join(projectRoot, 'tsconfig.json')}",`
 					: ''
 
@@ -151,7 +271,7 @@ export const fromTypes =
 					distDir = distDir.replace(/\\/g, '/')
 				}
 
-				writeFileSync(
+				fs.writeFileSync(
 					join(tmpRoot, 'tsconfig.json'),
 					`{
 	${extendsRef}
@@ -174,10 +294,21 @@ export const fromTypes =
 }`
 				)
 
+				const child_process = process.getBuiltinModule('child_process')
+				if (!child_process)
+					throw new Error(
+						'[@elysiajs/openapi/gen] `fromTypes` declaration generation require `child_process` module which is not available in this environment'
+					)
+				const { spawnSync } = child_process
+				if (typeof spawnSync !== 'function')
+					throw new Error(
+						'[@elysiajs/openapi/gen] `fromTypes` declaration generation require child_process.spawnSync which is not available in this environment'
+					)
+
 				spawnSync(`tsc`, {
 					shell: true,
 					cwd: tmpRoot,
-					stdio: debug ? 'inherit' : undefined
+					stdio: silent ? undefined : 'inherit'
 				})
 
 				const fileName = targetFilePath
@@ -199,7 +330,7 @@ export const fromTypes =
 						fileName.slice(fileName.indexOf('/') + 1)
 					)
 
-				let existed = existsSync(targetFile)
+				let existed = fs.existsSync(targetFile)
 
 				if (!existed && !overrideOutputPath) {
 					targetFile = join(
@@ -209,21 +340,22 @@ export const fromTypes =
 						fileName
 					)
 
-					existed = existsSync(targetFile)
+					existed = fs.existsSync(targetFile)
 				}
 
 				if (!existed) {
-					rmSync(join(tmpRoot, 'tsconfig.json'))
+					fs.rmSync(join(tmpRoot, 'tsconfig.json'))
 
 					console.warn(
 						'[@elysiajs/openapi/gen] Failed to generate OpenAPI schema'
 					)
 					console.warn("Couldn't find generated declaration file")
 
-					if (existsSync(join(tmpRoot, 'dist'))) {
-						const tempFiles = readdirSync(join(tmpRoot, 'dist'), {
-							recursive: true
-						})
+					if (fs.existsSync(join(tmpRoot, 'dist'))) {
+						const tempFiles = fs
+							.readdirSync(join(tmpRoot, 'dist'), {
+								recursive: true
+							})
 							.filter((x) => x.toString().endsWith('.d.ts'))
 							.map((x) => `- ${x}`)
 							.join('\n')
@@ -235,7 +367,7 @@ export const fromTypes =
 							console.warn(tempFiles)
 						}
 					} else {
-						console.log(
+						console.warn(
 							"reason: root folder doesn't exists",
 							join(tmpRoot, 'dist')
 						)
@@ -245,11 +377,11 @@ export const fromTypes =
 				}
 			}
 
-			const declaration = readFileSync(targetFile, 'utf8')
+			const declaration = fs.readFileSync(targetFile, 'utf8')
 
 			// Check just in case of race-condition
-			if (existsSync(tmpRoot))
-				rmSync(tmpRoot, { recursive: true, force: true })
+			if (!debug && fs.existsSync(tmpRoot))
+				fs.rmSync(tmpRoot, { recursive: true, force: true })
 
 			let instance = declaration.match(
 				instanceName
@@ -273,53 +405,7 @@ export const fromTypes =
 					)
 				)
 
-			const routesString = wrapStatusInQuote(
-				// Intentionally not adding "}"
-				// to avoid mismatched bracket in loop below
-				instance.slice(3, instance.indexOf('}, {', 4))
-			)
-
-			const routes: AdditionalReference = {}
-
-			// Treaty is a collection of { ... } & { ... } & { ... }
-			// Each route will be intersected with each other
-			// instead of being nested in a route object
-			for (const route of routesString.slice(1).split('} & {')) {
-				// as '} & {' is removed, we need to add it back
-				let schema = TypeBox(`{${route}}`)
-				if (schema.type !== 'object') continue
-
-				const paths = []
-
-				while (true) {
-					const keys = Object.keys(schema.properties)
-					if (keys.length !== 1) break
-
-					paths.push(keys[0])
-
-					schema = schema.properties[keys[0]] as any
-					if (!schema?.properties) break
-				}
-
-				const method = paths.pop()!
-				const path = '/' + paths.join('/')
-				schema = schema.properties
-
-				if (schema?.response?.type === 'object') {
-					const responseSchema: Record<string, any> = {}
-
-					for (const key in schema.response.properties)
-						responseSchema[key] = schema.response.properties[key]
-
-					schema.response = responseSchema
-				}
-
-				if (!routes[path]) routes[path] = {}
-				// @ts-ignore
-				routes[path][method.toLowerCase()] = schema
-			}
-
-			return routes
+			return declarationToJSONSchema(instance.slice(2))
 		} catch (error) {
 			console.warn(
 				'[@elysiajs/openapi/gen] Failed to generate OpenAPI schema'
@@ -328,7 +414,7 @@ export const fromTypes =
 
 			return
 		} finally {
-			if (!debug && existsSync(tmpRoot))
-				rmSync(tmpRoot, { recursive: true, force: true })
+			if (!debug && tmpRoot && fs.existsSync(tmpRoot))
+				fs.rmSync(tmpRoot, { recursive: true, force: true })
 		}
 	}
