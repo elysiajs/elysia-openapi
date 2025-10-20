@@ -232,22 +232,38 @@ export const fromTypes =
 			let targetFile: string
 
 			if (!tmpRoot) {
-				const os = process.getBuiltinModule('os')
-
-				tmpRoot = join(
-					os && typeof os.tmpdir === 'function'
-						? os.tmpdir()
-						: projectRoot,
-					'.ElysiaAutoOpenAPI'
-				)
+				// On Windows, prefer project root over system temp directory to avoid permission issues
+				if (process.platform === 'win32') {
+					tmpRoot = join(projectRoot, 'node_modules/.cache/.ElysiaAutoOpenAPI')
+				} else {
+					const os = process.getBuiltinModule('os')
+					tmpRoot = join(
+						os && typeof os.tmpdir === 'function'
+							? os.tmpdir()
+							: projectRoot,
+						'.ElysiaAutoOpenAPI'
+					)
+				}
 			}
 
 			// Since it's already a declaration file
 			// We can just read it directly
 			if (targetFilePath.endsWith('.d.ts')) targetFile = targetFilePath
 			else {
-				if (fs.existsSync(tmpRoot))
-					fs.rmSync(tmpRoot, { recursive: true, force: true })
+				if (fs.existsSync(tmpRoot)) {
+					try {
+						fs.rmSync(tmpRoot, { recursive: true, force: true })
+					} catch (error) {
+						// On Windows, files might be locked by other processes
+						// Silently ignore cleanup errors to not interrupt the main functionality
+						if (!silent) {
+							console.warn(
+								'[@elysiajs/openapi/gen] Warning: Could not clean up temporary directory:',
+								tmpRoot
+							)
+						}
+					}
+				}
 
 				fs.mkdirSync(tmpRoot, { recursive: true })
 
@@ -380,8 +396,20 @@ export const fromTypes =
 			const declaration = fs.readFileSync(targetFile, 'utf8')
 
 			// Check just in case of race-condition
-			if (!debug && fs.existsSync(tmpRoot))
-				fs.rmSync(tmpRoot, { recursive: true, force: true })
+			if (!debug && fs.existsSync(tmpRoot)) {
+				try {
+					fs.rmSync(tmpRoot, { recursive: true, force: true })
+				} catch (error) {
+					// On Windows, files might be locked by other processes
+					// Silently ignore cleanup errors to not interrupt the main functionality
+					if (!silent) {
+						console.warn(
+							'[@elysiajs/openapi/gen] Warning: Could not clean up temporary directory:',
+							tmpRoot
+						)
+					}
+				}
+			}
 
 			let instance = declaration.match(
 				instanceName
@@ -414,7 +442,19 @@ export const fromTypes =
 
 			return
 		} finally {
-			if (!debug && tmpRoot && fs.existsSync(tmpRoot))
-				fs.rmSync(tmpRoot, { recursive: true, force: true })
+			if (!debug && tmpRoot && fs.existsSync(tmpRoot)) {
+				try {
+					fs.rmSync(tmpRoot, { recursive: true, force: true })
+				} catch (error) {
+					// On Windows, files might be locked by other processes
+					// Silently ignore cleanup errors to not interrupt the main functionality
+					if (!silent) {
+						console.warn(
+							'[@elysiajs/openapi/gen] Warning: Could not clean up temporary directory:',
+							tmpRoot
+						)
+					}
+				}
+			}
 		}
 	}
