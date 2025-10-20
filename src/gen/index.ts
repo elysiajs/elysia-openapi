@@ -271,9 +271,35 @@ export const fromTypes =
 					? tsconfigPath
 					: join(projectRoot, tsconfigPath)
 
-				let extendsRef = fs.existsSync(tsconfig)
-					? `"extends": "${join(projectRoot, 'tsconfig.json')}",`
-					: ''
+				let extendsRef = ''
+			if (fs.existsSync(tsconfig)) {
+				try {
+					const tsconfigContent = fs.readFileSync(tsconfig, 'utf8')
+					const tsconfigParsed = JSON.parse(tsconfigContent)
+
+					// Extract baseUrl and paths from the original tsconfig
+					const baseUrl = tsconfigParsed.compilerOptions?.baseUrl || '.'
+					const paths = tsconfigParsed.compilerOptions?.paths || {}
+
+					extendsRef = `"extends": "${join(projectRoot, 'tsconfig.json')}",`
+
+					// Add baseUrl and paths to the temporary tsconfig if they exist
+					if (baseUrl || Object.keys(paths).length > 0) {
+						const customOptions = {
+							baseUrl,
+							...(Object.keys(paths).length > 0 && { paths })
+						}
+
+						compilerOptions = {
+							...compilerOptions,
+							...customOptions
+						}
+					}
+				} catch (error) {
+					// If we can't parse the tsconfig, fall back to basic extend
+					extendsRef = `"extends": "${join(projectRoot, 'tsconfig.json')}",`
+				}
+			}
 
 				let distDir = join(tmpRoot, 'dist')
 
