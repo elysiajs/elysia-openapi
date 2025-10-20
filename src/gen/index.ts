@@ -257,37 +257,38 @@ export const fromTypes =
 				: PathUtils.join(projectRoot, tsconfigPath)
 
 			let extendsRef = ''
+			let baseUrl = '.'
+			let paths: Record<string, string[]> = {}
+
 			if (fs.existsSync(tsconfig)) {
 				try {
 					const tsconfigContent = fs.readFileSync(tsconfig, 'utf8')
 					const tsconfigParsed = JSON.parse(tsconfigContent)
 
 					// Extract baseUrl and paths from the original tsconfig
-					const baseUrl = tsconfigParsed.compilerOptions?.baseUrl || '.'
-					const paths = tsconfigParsed.compilerOptions?.paths || {}
+					baseUrl = tsconfigParsed.compilerOptions?.baseUrl || '.'
+					paths = tsconfigParsed.compilerOptions?.paths || {}
 
-					// Use PathUtils to handle path references
-					if (PathUtils.isAbsolute(tsconfigPath)) {
-						extendsRef = `"extends": "${PathUtils.toUnix(tsconfig)}",`
-					} else {
-						extendsRef = `"extends": "${PathUtils.toUnix(PathUtils.join(projectRoot, 'tsconfig.json'))}",`
-					}
+					// Use relative path for extends to ensure TypeScript can resolve it correctly
+					// Calculate relative path from tmpRoot to the original tsconfig
+					const relativeTsconfigPath = PathUtils.relative(tmpRoot, tsconfig)
+					extendsRef = PathUtils.toUnix(relativeTsconfigPath)
 
-					// Add baseUrl and paths to the temporary tsconfig if they exist
-					if (baseUrl && baseUrl !== '.' || Object.keys(paths).length > 0) {
-						const customOptions: Record<string, any> = {}
-						if (baseUrl !== '.') customOptions.baseUrl = baseUrl
-						if (Object.keys(paths).length > 0) customOptions.paths = paths
+					console.log(`[@elysiajs/openapi/gen] Using tsconfig extends: ${relativeTsconfigPath}`)
+					console.log(`[@elysiajs/openapi/gen] Original tsconfig: ${tsconfig}`)
+					console.log(`[@elysiajs/openapi/gen] Temp directory: ${tmpRoot}`)
 
-						compilerOptions = {
-							...compilerOptions,
-							...customOptions
-						}
-					}
+					// Store baseUrl and paths for later use in tempTsConfig
+					console.log(`[@elysiajs/openapi/gen] Extracted baseUrl: ${baseUrl}`)
+					console.log(`[@elysiajs/openapi/gen] Extracted paths:`, Object.keys(paths))
 				} catch (error) {
+					console.warn(`[@elysiajs/openapi/gen] Failed to parse tsconfig, using fallback: ${error}`)
 					// If we can't parse the tsconfig, fall back to basic extend
-					extendsRef = `"extends": "${PathUtils.toUnix(PathUtils.join(projectRoot, 'tsconfig.json'))}",`
+					const relativeTsconfigPath = PathUtils.relative(tmpRoot, tsconfig)
+					extendsRef = PathUtils.toUnix(relativeTsconfigPath)
 				}
+			} else {
+				console.warn(`[@elysiajs/openapi/gen] tsconfig not found: ${tsconfig}`)
 			}
 
 				let distDir = PathUtils.join(tmpRoot, 'dist')
@@ -301,7 +302,7 @@ export const fromTypes =
 				const srcDir = src.substring(0, src.lastIndexOf('/')) || src
 
 				const tempTsConfig: any = {
-	compilerOptions: compilerOptions || {
+	compilerOptions: {
 		"lib": ["ESNext"],
 		"module": "ESNext",
 		"noEmit": false,
@@ -310,15 +311,29 @@ export const fromTypes =
 		"moduleResolution": "bundler",
 		"skipLibCheck": true,
 		"skipDefaultLibCheck": true,
-		"outDir": distDir
+		"outDir": distDir,
+		// Important: Force using the project's node_modules for type resolution
+		"baseUrl": baseUrl || ".",
+		"paths": paths || {},
+		// Prevent type conflicts by ensuring we use the project's types
+		"typeRoots": ["../../../node_modules/@types"],
+		"forceConsistentCasingInFileNames": true,
+		"strict": false, // Relax strictness to avoid conflicts
+		"noImplicitAny": false,
+		...compilerOptions
 	},
-	include: [`${srcDir}/**/*`]
+	include: [`${srcDir}/**/*`],
+	// Exclude problematic directories that might cause type conflicts
+	"exclude": ["../../../", "../../", "../", "node_modules/elysia"]
 }
 
 // Add extends if available
 if (extendsRef) {
-	tempTsConfig.extends = PathUtils.toUnix(PathUtils.join(projectRoot, 'tsconfig.json'))
+	tempTsConfig.extends = extendsRef
 }
+
+console.log(`[@elysiajs/openapi/gen] Generated temporary tsconfig:`)
+console.log(JSON.stringify(tempTsConfig, null, 2))
 
 fs.writeFileSync(
 					join(tmpRoot, 'tsconfig.json'),
