@@ -1,5 +1,6 @@
 import { TypeBox } from '@sinclair/typemap'
 import type { AdditionalReference } from '../types'
+import { PathUtils } from '../utils/path'
 
 const matchRoute = /: Elysia<(.*)>/gs
 const numberKey = /(\d+):/g
@@ -65,23 +66,8 @@ export interface OpenAPIGeneratorOptions {
 	silent?: boolean
 }
 
-/**
- * Polyfill path join for environments without Node.js path module
- */
-const join = (...parts: string[]) => {
-	const normalized = parts
-		.map(part => part.replace(/\\/g, '/')) // Convert Windows backslashes to forward slashes
-		.filter(part => part && part !== '/') // Remove empty parts
-		.join('/')
-		.replace(/\/{2,}/g, '/') // Replace multiple slashes with single slash
-
-	// Handle absolute paths
-	if (parts[0] && (parts[0].startsWith('/') || /^[a-zA-Z]:/.test(parts[0]))) {
-		return normalized
-	}
-
-	return normalized
-}
+// Use PathUtils to replace the original join function for better cross-platform support
+const join = PathUtils.join.bind(PathUtils)
 
 export function extractRootObjects(code: string) {
 	const results = []
@@ -245,18 +231,8 @@ export const fromTypes =
 			let targetFile: string
 
 			if (!tmpRoot) {
-				// On Windows, prefer project root over system temp directory to avoid permission issues
-				if (process.platform === 'win32') {
-					tmpRoot = join(projectRoot, 'node_modules/.cache/.ElysiaAutoOpenAPI')
-				} else {
-					const os = process.getBuiltinModule('os')
-					tmpRoot = join(
-						os && typeof os.tmpdir === 'function'
-							? os.tmpdir()
-							: projectRoot,
-						'.ElysiaAutoOpenAPI'
-					)
-				}
+				// Use PathUtils to get cross-platform compatible temporary directory
+				tmpRoot = PathUtils.getTempDir('.ElysiaAutoOpenAPI')
 			}
 
 			// Since it's already a declaration file
@@ -264,29 +240,23 @@ export const fromTypes =
 			if (targetFilePath.endsWith('.d.ts')) targetFile = targetFilePath
 			else {
 				if (fs.existsSync(tmpRoot)) {
-					try {
-						fs.rmSync(tmpRoot, { recursive: true, force: true })
-					} catch (error) {
-						// On Windows, files might be locked by other processes
-						// Silently ignore cleanup errors to not interrupt the main functionality
-						if (!silent) {
-							console.warn(
-								'[@elysiajs/openapi/gen] Warning: Could not clean up temporary directory:',
-								tmpRoot
-							)
-						}
+					PathUtils.safeRemove(tmpRoot, 3, 100)
+					if (!silent) {
+						console.log(
+							'[@elysiajs/openapi/gen] Cleaned temporary directory:',
+							tmpRoot
+						)
 					}
 				}
 
 				fs.mkdirSync(tmpRoot, { recursive: true })
 
-				// Check if tsconfigPath is already an absolute path
-				const tsconfig = (tsconfigPath.startsWith('/') || /^[a-zA-Z]:/.test(tsconfigPath))
-					? tsconfigPath
-					: join(projectRoot, tsconfigPath)
+				// Use PathUtils to check and handle tsconfig paths
+			const tsconfig = PathUtils.isAbsolute(tsconfigPath)
+				? tsconfigPath
+				: PathUtils.join(projectRoot, tsconfigPath)
 
-				
-				let extendsRef = ''
+			let extendsRef = ''
 			if (fs.existsSync(tsconfig)) {
 				try {
 					const tsconfigContent = fs.readFileSync(tsconfig, 'utf8')
@@ -296,14 +266,11 @@ export const fromTypes =
 					const baseUrl = tsconfigParsed.compilerOptions?.baseUrl || '.'
 					const paths = tsconfigParsed.compilerOptions?.paths || {}
 
-					
-					// Use relative path for extends if tsconfigPath is absolute, otherwise use projectRoot
-					if ((tsconfigPath.startsWith('/') || /^[a-zA-Z]:/.test(tsconfigPath))) {
-						// If tsconfigPath is absolute, use it directly for extends
-						extendsRef = `"extends": "${tsconfig}",`
+					// Use PathUtils to handle path references
+					if (PathUtils.isAbsolute(tsconfigPath)) {
+						extendsRef = `"extends": "${PathUtils.toUnix(tsconfig)}",`
 					} else {
-						// Otherwise use the default projectRoot path
-						extendsRef = `"extends": "${join(projectRoot, 'tsconfig.json')}",`
+						extendsRef = `"extends": "${PathUtils.toUnix(PathUtils.join(projectRoot, 'tsconfig.json'))}",`
 					}
 
 					// Add baseUrl and paths to the temporary tsconfig if they exist
@@ -312,7 +279,6 @@ export const fromTypes =
 						if (baseUrl !== '.') customOptions.baseUrl = baseUrl
 						if (Object.keys(paths).length > 0) customOptions.paths = paths
 
-						
 						compilerOptions = {
 							...compilerOptions,
 							...customOptions
@@ -320,21 +286,16 @@ export const fromTypes =
 					}
 				} catch (error) {
 					// If we can't parse the tsconfig, fall back to basic extend
-					extendsRef = `"extends": "${join(projectRoot, 'tsconfig.json')}",`
+					extendsRef = `"extends": "${PathUtils.toUnix(PathUtils.join(projectRoot, 'tsconfig.json'))}",`
 				}
 			}
 
-				let distDir = join(tmpRoot, 'dist')
+				let distDir = PathUtils.join(tmpRoot, 'dist')
 
-				// Convert Windows path to Unix for TypeScript CLI
-				if (
-					typeof process !== 'undefined' &&
-					process.platform === 'win32'
-				) {
-					extendsRef = extendsRef.replace(/\\/g, '/')
-					src = src.replace(/\\/g, '/')
-					distDir = distDir.replace(/\\/g, '/')
-				}
+				// Use PathUtils to intelligently convert paths to Unix format for TypeScript CLI
+				extendsRef = PathUtils.toUnix(extendsRef)
+				src = PathUtils.toUnix(src)
+				distDir = PathUtils.toUnix(distDir)
 
 				// Include the entire src directory instead of just the target file
 				const srcDir = src.substring(0, src.lastIndexOf('/')) || src
@@ -356,7 +317,7 @@ export const fromTypes =
 
 // Add extends if available
 if (extendsRef) {
-	tempTsConfig.extends = join(projectRoot, 'tsconfig.json')
+	tempTsConfig.extends = PathUtils.toUnix(PathUtils.join(projectRoot, 'tsconfig.json'))
 }
 
 fs.writeFileSync(
@@ -452,18 +413,7 @@ fs.writeFileSync(
 
 			// Check just in case of race-condition
 			if (!debug && fs.existsSync(tmpRoot)) {
-				try {
-					fs.rmSync(tmpRoot, { recursive: true, force: true })
-				} catch (error) {
-					// On Windows, files might be locked by other processes
-					// Silently ignore cleanup errors to not interrupt the main functionality
-					if (!silent) {
-						console.warn(
-							'[@elysiajs/openapi/gen] Warning: Could not clean up temporary directory:',
-							tmpRoot
-						)
-					}
-				}
+				PathUtils.safeRemove(tmpRoot, 3, 100)
 			}
 
 			let instance = declaration.match(
@@ -498,18 +448,7 @@ fs.writeFileSync(
 			return
 		} finally {
 			if (!debug && tmpRoot && fs.existsSync(tmpRoot)) {
-				try {
-					fs.rmSync(tmpRoot, { recursive: true, force: true })
-				} catch (error) {
-					// On Windows, files might be locked by other processes
-					// Silently ignore cleanup errors to not interrupt the main functionality
-					if (!silent) {
-						console.warn(
-							'[@elysiajs/openapi/gen] Warning: Could not clean up temporary directory:',
-							tmpRoot
-						)
-					}
-				}
+				PathUtils.safeRemove(tmpRoot, 3, 100)
 			}
 		}
 	}

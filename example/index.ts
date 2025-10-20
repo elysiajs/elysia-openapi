@@ -5,17 +5,17 @@ import { JSONSchema, Schema } from 'effect'
 import { openapi, withHeaders } from '../src/index'
 
 const app = new Elysia()
-	.use(
-		openapi({
-			embedSchema: true,
-			mapJsonSchema: {
-				zod: z.toJSONSchema
-			}
-		})
-	)
-	.get('/test', ({ status }) => status(204, undefined), {
-		response: {
-			204: z.void()
-		}
-	})
-	.listen(3000)
+  .use(
+    openapi({
+      embedSpec: true,
+      mapJsonSchema: {
+        zod: z.toJSONSchema
+      }
+    })
+  )
+  .get('/test', ({ status }) => status(204, undefined), {
+    response: {
+      204: z.void()
+    }
+  })
+  .listen(3000)
