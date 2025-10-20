@@ -68,7 +68,20 @@ export interface OpenAPIGeneratorOptions {
 /**
  * Polyfill path join for environments without Node.js path module
  */
-const join = (...parts: string[]) => parts.join('/').replace(/\/{1,}/g, '/')
+const join = (...parts: string[]) => {
+	const normalized = parts
+		.map(part => part.replace(/\\/g, '/')) // Convert Windows backslashes to forward slashes
+		.filter(part => part && part !== '/') // Remove empty parts
+		.join('/')
+		.replace(/\/{2,}/g, '/') // Replace multiple slashes with single slash
+
+	// Handle absolute paths
+	if (parts[0] && (parts[0].startsWith('/') || /^[a-zA-Z]:/.test(parts[0]))) {
+		return normalized
+	}
+
+	return normalized
+}
 
 export function extractRootObjects(code: string) {
 	const results = []
@@ -267,10 +280,12 @@ export const fromTypes =
 
 				fs.mkdirSync(tmpRoot, { recursive: true })
 
-				const tsconfig = tsconfigPath.startsWith('/')
+				// Check if tsconfigPath is already an absolute path
+				const tsconfig = (tsconfigPath.startsWith('/') || /^[a-zA-Z]:/.test(tsconfigPath))
 					? tsconfigPath
 					: join(projectRoot, tsconfigPath)
 
+				
 				let extendsRef = ''
 			if (fs.existsSync(tsconfig)) {
 				try {
@@ -281,15 +296,23 @@ export const fromTypes =
 					const baseUrl = tsconfigParsed.compilerOptions?.baseUrl || '.'
 					const paths = tsconfigParsed.compilerOptions?.paths || {}
 
-					extendsRef = `"extends": "${join(projectRoot, 'tsconfig.json')}",`
+					
+					// Use relative path for extends if tsconfigPath is absolute, otherwise use projectRoot
+					if ((tsconfigPath.startsWith('/') || /^[a-zA-Z]:/.test(tsconfigPath))) {
+						// If tsconfigPath is absolute, use it directly for extends
+						extendsRef = `"extends": "${tsconfig}",`
+					} else {
+						// Otherwise use the default projectRoot path
+						extendsRef = `"extends": "${join(projectRoot, 'tsconfig.json')}",`
+					}
 
 					// Add baseUrl and paths to the temporary tsconfig if they exist
-					if (baseUrl || Object.keys(paths).length > 0) {
-						const customOptions = {
-							baseUrl,
-							...(Object.keys(paths).length > 0 && { paths })
-						}
+					if (baseUrl && baseUrl !== '.' || Object.keys(paths).length > 0) {
+						const customOptions: Record<string, any> = {}
+						if (baseUrl !== '.') customOptions.baseUrl = baseUrl
+						if (Object.keys(paths).length > 0) customOptions.paths = paths
 
+						
 						compilerOptions = {
 							...compilerOptions,
 							...customOptions
@@ -313,29 +336,35 @@ export const fromTypes =
 					distDir = distDir.replace(/\\/g, '/')
 				}
 
-				fs.writeFileSync(
-					join(tmpRoot, 'tsconfig.json'),
-					`{
-	${extendsRef}
-	"compilerOptions": ${
-		compilerOptions
-			? JSON.stringify(compilerOptions)
-			: `{
-	"lib": ["ESNext"],
-	"module": "ESNext",
-	"noEmit": false,
-	"declaration": true,
-	"emitDeclarationOnly": true,
-	"moduleResolution": "bundler",
-	"skipLibCheck": true,
-	"skipDefaultLibCheck": true,
-	"outDir": "${distDir}"
-}`
+				// Include the entire src directory instead of just the target file
+				const srcDir = src.substring(0, src.lastIndexOf('/')) || src
+
+				const tempTsConfig: any = {
+	compilerOptions: compilerOptions || {
+		"lib": ["ESNext"],
+		"module": "ESNext",
+		"noEmit": false,
+		"declaration": true,
+		"emitDeclarationOnly": true,
+		"moduleResolution": "bundler",
+		"skipLibCheck": true,
+		"skipDefaultLibCheck": true,
+		"outDir": distDir
 	},
-	"include": ["${src}"]
-}`
+	include: [`${srcDir}/**/*`]
+}
+
+// Add extends if available
+if (extendsRef) {
+	tempTsConfig.extends = join(projectRoot, 'tsconfig.json')
+}
+
+fs.writeFileSync(
+					join(tmpRoot, 'tsconfig.json'),
+					JSON.stringify(tempTsConfig, null, 2)
 				)
 
+				
 				const child_process = process.getBuiltinModule('child_process')
 				if (!child_process)
 					throw new Error(
