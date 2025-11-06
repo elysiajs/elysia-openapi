@@ -295,7 +295,10 @@ export function toOpenAPISchema(
 	const definitions = app.getGlobalDefinitions?.().type
 
 	// @ts-ignore private property
-	const routes = app.getGlobalRoutes()
+	// Use getFlattenedRoutes() if available (Elysia 1.4.16+) to get guard() schemas
+	// Falls back to getGlobalRoutes() for older versions
+	// @ts-ignore
+	const routes = app.getFlattenedRoutes?.() ?? app.getGlobalRoutes()
 
 	if (references) {
 		if (!Array.isArray(references)) references = [references]
