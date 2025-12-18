@@ -1,4 +1,5 @@
 # 1.4.12 - 18 Dec 2025
+- support standard json schema conversion
 - [#300](https://github.com/elysiajs/elysia-openapi/pull/300) support standalone schema by @MarcelOlsen
 
 # 1.4.11 - 25 Sep 2025
