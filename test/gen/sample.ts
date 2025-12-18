@@ -46,7 +46,6 @@ export const app = new Elysia()
 			})
 		}
 	)
-	.get('/id/:id/name/:name', ({ params }) => params)
 	.post(
 		'/character',
 		() => ({

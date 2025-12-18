@@ -564,35 +564,6 @@ describe('Gen > Type Gen', () => {
 					}
 				}
 			},
-			'/id/:id/name/:name': {
-				get: {
-					body: {},
-					headers: {},
-					params: {
-						properties: {
-							id: {
-								type: 'string'
-							},
-							name: {
-								type: 'string'
-							}
-						},
-						required: ['name', 'id'],
-						type: 'object'
-					},
-					query: {},
-					response: {
-						'200': {
-							patternProperties: {
-								'^(.*)$': {
-									type: 'string'
-								}
-							},
-							type: 'object'
-						}
-					}
-				}
-			},
 			'/json': {
 				post: {
 					body: {

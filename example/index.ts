@@ -7,15 +7,37 @@ import { openapi, withHeaders } from '../src/index'
 const app = new Elysia()
 	.use(
 		openapi({
-			embedSchema: true,
 			mapJsonSchema: {
 				zod: z.toJSONSchema
 			}
 		})
 	)
-	.get('/test', ({ status }) => status(204, undefined), {
+	.guard({
+		schema: 'standalone',
 		response: {
-			204: z.void()
+			403: t.Object({
+				age: t.Number()
+			})
+		}
+	})
+	// .guard({
+	// 	schema: 'standalone',
+	// 	response: {
+	// 		403: z.object({
+	// 			code: z.string()
+	// 		})
+	// 	}
+	// })
+	.post('/', ({ body }) => body, {
+		body: t.Object({
+			name: t.String()
+		})
+	})
+	.get('/test', ({ status }) => {}, {
+		response: {
+			403: t.Object({
+				name: t.String()
+			})
 		}
 	})
 	.listen(3000)

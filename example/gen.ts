@@ -9,17 +9,9 @@ export const app = new Elysia()
 			mapJsonSchema: {
 				zod: z.toJSONSchema
 			},
-			references: fromTypes('example/gen.ts', {
-				debug: true
-			})
+			references: fromTypes('example/gen.ts')
 		})
 	)
-	.model({
-		'character.name': t.String(),
-		'character.thing': t.Object({
-			name: t.String()
-		})
-	})
 	.get(
 		'/const',
 		() =>
@@ -48,7 +40,6 @@ export const app = new Elysia()
 			}
 		}
 	)
-	.get('/hello/2', () => 'hello')
 	.post(
 		'/json',
 		({ body, status }) => (Math.random() > 0.5 ? status(418) : body),
@@ -59,6 +50,12 @@ export const app = new Elysia()
 		}
 	)
 	.get('/id/:id/name/:name', ({ params }) => params)
+	.model({
+		'character.name': t.String(),
+		'character.thing': t.Object({
+			name: t.String()
+		})
+	})
 	.post(
 		'/character',
 		() => ({
