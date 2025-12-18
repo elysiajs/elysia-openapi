@@ -298,7 +298,7 @@ const unwrapResponseSchema = (
 				? schema
 				: // @ts-ignore
 					schema['~standard']
-					? unwrapSchema(schema as any, vendors)
+					? unwrapSchema(schema as any, vendors, 'output')
 					: Object.fromEntries(
 							Object.entries(schema).map(([status, schema]) => [
 								status,
@@ -306,7 +306,7 @@ const unwrapResponseSchema = (
 									? normalizeSchemaReference(schema)
 									: isTSchema(schema)
 										? schema
-										: unwrapSchema(schema as any, vendors)
+										: unwrapSchema(schema as any, vendors, 'output')
 							])
 						)
 
@@ -498,7 +498,8 @@ const unwrapReference = <T extends OpenAPIV3.SchemaObject | undefined>(
 
 export const unwrapSchema = (
 	schema: InputSchema['body'],
-	mapJsonSchema?: MapJsonSchema
+	mapJsonSchema?: MapJsonSchema,
+	io: 'input' | 'output' = 'input'
 ): OpenAPIV3.SchemaObject | undefined => {
 	if (!schema) return
 
@@ -511,6 +512,11 @@ export const unwrapSchema = (
 	const vendor = schema['~standard'].vendor
 
 	try {
+		// @ts-ignore
+		if (schema['~standard']?.jsonSchema?.[io])
+		// @ts-ignore
+			return schema['~standard']?.jsonSchema?.[io]?.()
+
 		if (
 			mapJsonSchema?.[vendor] &&
 			typeof mapJsonSchema[vendor] === 'function'
@@ -954,7 +960,7 @@ export function toOpenAPISchema(
 				!(hooks.response as any)['~standard']
 			) {
 				for (let [status, schema] of Object.entries(hooks.response)) {
-					const response = unwrapSchema(schema, vendors)
+					const response = unwrapSchema(schema, vendors, 'output')
 
 					if (!response) continue
 
@@ -987,7 +993,7 @@ export function toOpenAPISchema(
 					}
 				}
 			} else {
-				const response = unwrapSchema(hooks.response as any, vendors)
+				const response = unwrapSchema(hooks.response as any, vendors, 'output')
 
 				if (response) {
 					// @ts-ignore
