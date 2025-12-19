@@ -698,7 +698,7 @@ export function toOpenAPISchema(
 			continue
 
 		const hooks: InputSchema & {
-			detail: Partial<OpenAPIV3.OperationObject>
+			detail?: Partial<OpenAPIV3.OperationObject>
 		} = route.hooks ?? {}
 
 		if (references?.length)
@@ -758,7 +758,7 @@ export function toOpenAPISchema(
 
 		if (
 			excludeTags &&
-			hooks.detail.tags?.some((tag) => excludeTags?.includes(tag))
+			hooks.detail?.tags?.some((tag) => excludeTags?.includes(tag))
 		)
 			continue
 
