@@ -2,7 +2,7 @@ import { TypeBox } from '@sinclair/typemap'
 import type { AdditionalReference } from '../types'
 
 const matchRoute = /: Elysia<(.*)>/gs
-const numberKey = /(\d+):/g
+const propertyKey = /([A-Za-z_]\w*|\d+):/g
 
 export interface OpenAPIGeneratorOptions {
 	/**
@@ -120,7 +120,8 @@ export function declarationToJSONSchema(declaration: string) {
 
 	// Treaty is a collection of { ... } & { ... } & { ... }
 	for (const route of extractRootObjects(
-		declaration.replace(numberKey, '"$1":')
+		// Ensure all property keys are wrapped in quotations
+		declaration.replace(propertyKey, '"$1":')
 	)) {
 		let schema = TypeBox(route.replaceAll(/readonly/g, ''))
 		if (schema.type !== 'object') continue
