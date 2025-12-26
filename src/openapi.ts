@@ -252,7 +252,7 @@ const mergeSchemaProperty = (
 	if (!incoming) return existing
 
 	// Normalize string references to TRef nodes so they can be merged
-	const existingSchema = normalizeSchemaReference(existing)
+	let existingSchema = normalizeSchemaReference(existing)
 	let incomingSchema = normalizeSchemaReference(incoming)
 
 	if (!existingSchema) return incoming
@@ -261,7 +261,11 @@ const mergeSchemaProperty = (
 	if (!isTSchema(incomingSchema) && incomingSchema['~standard'])
 		incomingSchema = unwrapSchema(incomingSchema, vendors) as any
 
-	if (!incomingSchema) return existing
+	if (!isTSchema(existingSchema) && existingSchema['~standard'])
+		existingSchema = unwrapSchema(existingSchema, vendors) as any
+
+	if (!incomingSchema) return existingSchema
+	if (!existingSchema) return incomingSchema
 
 	// If both are object schemas, merge them
 	const { schema: mergedSchema, notObjects } = mergeObjectSchemas([
@@ -306,7 +310,11 @@ const unwrapResponseSchema = (
 									? normalizeSchemaReference(schema)
 									: isTSchema(schema)
 										? schema
-										: unwrapSchema(schema as any, vendors, 'output')
+										: unwrapSchema(
+												schema as any,
+												vendors,
+												'output'
+											)
 							])
 						)
 
@@ -506,7 +514,15 @@ export const unwrapSchema = (
 	if (typeof schema === 'string') schema = toRef(schema)
 	if (Kind in schema) return enumToOpenApi(schema)
 
-	if (Kind in schema || !schema?.['~standard']) return
+	// Already unwrapped by merging standalone validators
+	if (
+		!schema?.['~standard'] &&
+		// @ts-ignore
+		(schema.$schema || schema.type || schema.properties || schema.items)
+	)
+		return schema as OpenAPIV3.SchemaObject
+
+	if (!schema?.['~standard']) return
 
 	// @ts-ignore
 	const vendor = schema['~standard'].vendor
@@ -514,7 +530,7 @@ export const unwrapSchema = (
 	try {
 		// @ts-ignore
 		if (schema['~standard']?.jsonSchema?.[io])
-		// @ts-ignore
+			// @ts-ignore
 			return schema['~standard']?.jsonSchema?.[io]?.()
 
 		if (
@@ -590,6 +606,11 @@ export const unwrapSchema = (
 	}
 }
 
+/**
+ * Convert TypeBox enum-like Union schemas to OpenAPI enum schemas
+ *
+ * Otherwise, return the schema as is
+ */
 export const enumToOpenApi = <
 	T extends
 		| TAnySchema
@@ -993,7 +1014,11 @@ export function toOpenAPISchema(
 					}
 				}
 			} else {
-				const response = unwrapSchema(hooks.response as any, vendors, 'output')
+				const response = unwrapSchema(
+					hooks.response as any,
+					vendors,
+					'output'
+				)
 
 				if (response) {
 					// @ts-ignore

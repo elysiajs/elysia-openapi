@@ -1,4 +1,9 @@
+# 1.4.13 - 26 Dec 2025
+Bug fix:
+- merge multiple standalone standard schema
+
 # 1.4.12 - 18 Dec 2025
+Improvement:
 - support standard json schema conversion
 - [#300](https://github.com/elysiajs/elysia-openapi/pull/300) support standalone schema by @MarcelOlsen
 
