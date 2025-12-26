@@ -1,6 +1,6 @@
 {
     "name": "@elysiajs/openapi",
-    "version": "1.4.12",
+    "version": "1.4.13",
     "description": "Plugin for Elysia to auto-generate API documentation",
     "author": {
         "name": "saltyAom",
@@ -73,7 +73,9 @@
         "build": "bun build.ts",
         "release": "npm run build && npm run test && npm publish --access public"
     },
-    "dependencies": {},
+    "dependencies": {
+        "elysia": "https://pkg.pr.new/elysiajs/elysia@1637"
+    },
     "devDependencies": {
         "@apidevtools/swagger-parser": "^12.0.0",
         "@scalar/types": "^0.2.13",

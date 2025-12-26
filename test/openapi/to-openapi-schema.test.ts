@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import { AnyElysia, Elysia, t } from 'elysia'
 
 import { toOpenAPISchema } from '../../src/openapi'
+import { z } from 'zod'
 
 const is = <T extends AnyElysia>(
 	app: T,
@@ -1214,6 +1215,62 @@ describe('OpenAPI > toOpenAPISchema', () => {
 							},
 							required: true
 						}
+					}
+				}
+			}
+		})
+	})
+
+	it('merge multiple standard standalone schema', () => {
+		const app = new Elysia()
+			.macro('fooBar', {
+				query: z.object({
+					foo: z.optional(z.string())
+				}),
+				resolve({ query }) {
+					return { test: query.foo ? 'foo' : 'bar' }
+				}
+			})
+			.get(
+				'/',
+				({ test, query }) => {
+					const { foo, bar } = query
+					return { ok: true, test, foo, bar }
+				},
+				{
+					query: z.object({
+						bar: z.optional(z.string())
+					}),
+					fooBar: true
+				}
+			)
+
+		is(app, {
+			components: {
+				schemas: {}
+			},
+			paths: {
+				'/': {
+					get: {
+						operationId: 'getIndex',
+						parameters: [
+							{
+								in: 'query',
+								name: 'bar',
+								required: false,
+								schema: {
+									type: 'string'
+								}
+							},
+							{
+								in: 'query',
+								name: 'foo',
+								required: false,
+								schema: {
+									type: 'string'
+								}
+							}
+						]
 					}
 				}
 			}
