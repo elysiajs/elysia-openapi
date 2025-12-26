@@ -534,8 +534,10 @@ export const unwrapSchema = (
 	try {
 		// @ts-ignore
 		if (schema['~standard']?.jsonSchema?.[io])
-			// @ts-ignore
-			return schema['~standard']?.jsonSchema?.[io]?.()
+		// @ts-ignore
+			return schema['~standard']?.jsonSchema?.[io]?.({
+				target: "draft-2020-12"
+			})
 
 		if (
 			mapJsonSchema?.[vendor] &&
