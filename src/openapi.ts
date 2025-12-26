@@ -25,7 +25,11 @@ import type {
 export const capitalize = (word: string) =>
 	word.charAt(0).toUpperCase() + word.slice(1)
 
-const toRef = (name: string) => t.Ref(`#/components/schemas/${name}`)
+const toRef = (name: string) => t.Ref(
+	name.startsWith('#/')
+		? name
+		: `#/components/schemas/${name}`
+)
 
 const toOperationId = (method: string, paths: string) => {
 	let operationId = method.toLowerCase()
@@ -236,7 +240,7 @@ const normalizeSchemaReference = (
 
 	// Convert string reference to t.Ref node
 	// This allows string aliases to participate in schema composition
-	return t.Ref(schema)
+	return toRef(schema)
 }
 
 /**
@@ -529,8 +533,10 @@ export const unwrapSchema = (
 	try {
 		// @ts-ignore
 		if (schema['~standard']?.jsonSchema?.[io])
-			// @ts-ignore
-			return schema['~standard']?.jsonSchema?.[io]?.()
+		// @ts-ignore
+			return schema['~standard']?.jsonSchema?.[io]?.({
+				target: "draft-2020-12"
+			})
 
 		if (
 			mapJsonSchema?.[vendor] &&
