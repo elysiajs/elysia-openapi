@@ -540,9 +540,9 @@ export const unwrapSchema = (
 		// @ts-ignore
 		if (schema['~standard']?.jsonSchema?.[io])
 			// @ts-ignore
-			return schema['~standard']?.jsonSchema?.[io]?.({
+			return enumToOpenApi(schema['~standard'].jsonSchema[io]({
 				target: 'draft-2020-12'
-			})
+			}))
 
 		switch (vendor) {
 			case 'zod':
