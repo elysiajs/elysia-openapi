@@ -1,3 +1,14 @@
+# 1.4.13 - 26 Dec 2025
+Bug fix:
+- merge multiple standalone standard schema
+- [#314](https://github.com/elysiajs/elysia-openapi/pull/314) handle schema references without full path prefix in toRef
+- [#313](https://github.com/elysiajs/elysia-openapi/pull/313) unwrapSchema calls for libraries supporting open standard schema
+
+# 1.4.12 - 18 Dec 2025
+Improvement:
+- support standard json schema conversion
+- [#300](https://github.com/elysiajs/elysia-openapi/pull/300) support standalone schema by @MarcelOlsen
+
 # 1.4.11 - 25 Sep 2025
 Improvement:
 - add `embedSpec` option to embed spec into documentation page

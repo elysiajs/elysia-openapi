@@ -1,8 +1,19 @@
 import { t, type AnyElysia, type TSchema, type InputSchema } from 'elysia'
-import type { HookContainer, StandardSchemaV1Like } from 'elysia/types'
+import type {
+	HookContainer,
+	LocalHook,
+	RouteSchema,
+	SingletonBase,
+	StandardSchemaV1Like
+} from 'elysia/types'
 
 import type { OpenAPIV3 } from 'openapi-types'
-import { Kind, TAnySchema, type TProperties } from '@sinclair/typebox'
+import {
+	Kind,
+	TAnySchema,
+	type TProperties,
+	type TObject
+} from '@sinclair/typebox'
 
 import type {
 	AdditionalReference,
@@ -10,12 +21,15 @@ import type {
 	ElysiaOpenAPIConfig,
 	MapJsonSchema
 } from './types'
-import { defineConfig } from 'tsup'
 
 export const capitalize = (word: string) =>
 	word.charAt(0).toUpperCase() + word.slice(1)
 
-const toRef = (name: string) => t.Ref(`#/components/schemas/${name}`)
+const toRef = (name: string) => t.Ref(
+	name.startsWith('#/')
+		? name
+		: `#/components/schemas/${name}`
+)
 
 const toOperationId = (method: string, paths: string) => {
 	let operationId = method.toLowerCase()
@@ -106,6 +120,374 @@ openapi({
 
 const warned = {} as Record<keyof typeof warnings, boolean | undefined>
 
+// ============================================================================
+// Schema Flattening Helpers
+// ============================================================================
+
+/**
+ * Merge object schemas together
+ * Returns merged object schema and any non-object schemas that couldn't be merged
+ */
+const mergeObjectSchemas = (
+	schemas: TSchema[]
+): {
+	schema: TObject | undefined
+	notObjects: TSchema[]
+} => {
+	if (schemas.length === 0)
+		return {
+			schema: undefined,
+			notObjects: []
+		}
+
+	if (schemas.length === 1)
+		return schemas[0].type === 'object'
+			? {
+					schema: schemas[0] as TObject,
+					notObjects: []
+				}
+			: {
+					schema: undefined,
+					notObjects: schemas
+				}
+
+	let newSchema: TObject
+	const notObjects = <TSchema[]>[]
+
+	let additionalPropertiesIsTrue = false
+	let additionalPropertiesIsFalse = false
+
+	for (const schema of schemas) {
+		if (!schema) continue
+
+		if (schema.type !== 'object') {
+			notObjects.push(schema)
+			continue
+		}
+
+		if ('additionalProperties' in schema) {
+			if (schema.additionalProperties === true)
+				additionalPropertiesIsTrue = true
+			else if (schema.additionalProperties === false)
+				additionalPropertiesIsFalse = true
+		}
+
+		if (!newSchema!) {
+			newSchema = schema as TObject
+			continue
+		}
+
+		newSchema = {
+			...newSchema,
+			...schema,
+			properties: {
+				...newSchema.properties,
+				...schema.properties
+			},
+			required: [
+				...(newSchema?.required ?? []),
+				...(schema.required ?? [])
+			]
+		} as TObject
+	}
+
+	if (newSchema!) {
+		if (newSchema.required)
+			newSchema.required = [...new Set(newSchema.required)]
+
+		if (additionalPropertiesIsFalse) newSchema.additionalProperties = false
+		else if (additionalPropertiesIsTrue)
+			newSchema.additionalProperties = true
+	}
+
+	return {
+		schema: newSchema!,
+		notObjects
+	}
+}
+
+/**
+ * Check if a value is a TypeBox schema (vs a status code object)
+ * Uses the TypeBox Kind symbol which all schemas have.
+ *
+ * This method distinguishes between:
+ * - TypeBox schemas: Have the Kind symbol (unions, intersects, objects, etc.)
+ * - Status code objects: Plain objects with numeric keys like { 200: schema, 404: schema }
+ */
+const isTSchema = (value: any): value is TSchema => {
+	if (!value || typeof value !== 'object') return false
+
+	// All TypeBox schemas have the Kind symbol
+	if (Kind in value) return true
+
+	// Additional check: if it's an object with only numeric keys, it's likely a status code map
+	const keys = Object.keys(value)
+	if (keys.length > 0 && keys.every((k) => !isNaN(Number(k)))) {
+		return false
+	}
+
+	return false
+}
+
+/**
+ * Normalize string schema references to TRef nodes for proper merging
+ */
+const normalizeSchemaReference = (
+	schema: TSchema | string | undefined
+): TSchema | undefined => {
+	if (!schema) return undefined
+	if (typeof schema !== 'string') return schema
+
+	// Convert string reference to t.Ref node
+	// This allows string aliases to participate in schema composition
+	return toRef(schema)
+}
+
+/**
+ * Merge two schema properties (body, query, headers, params, cookie)
+ */
+const mergeSchemaProperty = (
+	existing: TSchema | string | undefined,
+	incoming: TSchema | string | undefined,
+	vendors?: MapJsonSchema
+): TSchema | string | undefined => {
+	if (!existing) return incoming
+	if (!incoming) return existing
+
+	// Normalize string references to TRef nodes so they can be merged
+	let existingSchema = normalizeSchemaReference(existing)
+	let incomingSchema = normalizeSchemaReference(incoming)
+
+	if (!existingSchema) return incoming
+	if (!incomingSchema) return existing
+
+	if (!isTSchema(incomingSchema) && incomingSchema['~standard'])
+		incomingSchema = unwrapSchema(incomingSchema, vendors) as any
+
+	if (!isTSchema(existingSchema) && existingSchema['~standard'])
+		existingSchema = unwrapSchema(existingSchema, vendors) as any
+
+	if (!incomingSchema) return existingSchema
+	if (!existingSchema) return incomingSchema
+
+	// If both are object schemas, merge them
+	const { schema: mergedSchema, notObjects } = mergeObjectSchemas([
+		existingSchema,
+		incomingSchema
+	])
+
+	// If we have non-object schemas, create an Intersect
+	if (notObjects.length > 0) {
+		if (mergedSchema) return t.Intersect([mergedSchema, ...notObjects])
+
+		return notObjects.length === 1 ? notObjects[0] : t.Intersect(notObjects)
+	}
+
+	return mergedSchema
+}
+
+type ResponseSchema =
+	| TSchema
+	| { [status: number]: TSchema }
+	| string
+	| { [status: number]: string | TSchema }
+	| undefined
+
+const unwrapResponseSchema = (
+	schema: ResponseSchema,
+	vendors?: MapJsonSchema
+) =>
+	typeof schema === 'string'
+		? normalizeSchemaReference(schema)
+		: !schema
+			? undefined
+			: isTSchema(schema)
+				? schema
+				: // @ts-ignore
+					schema['~standard']
+					? unwrapSchema(schema as any, vendors, 'output')
+					: Object.fromEntries(
+							Object.entries(schema).map(([status, schema]) => [
+								status,
+								typeof schema === 'string'
+									? normalizeSchemaReference(schema)
+									: isTSchema(schema)
+										? schema
+										: unwrapSchema(
+												schema as any,
+												vendors,
+												'output'
+											)
+							])
+						)
+
+/**
+ * Merge response schemas (handles status code objects)
+ */
+const mergeResponseSchema = (
+	_existing: ResponseSchema,
+	_incoming: ResponseSchema,
+	vendors?: MapJsonSchema
+): TSchema | { [status: number]: TSchema | string } | string | undefined => {
+	if (!_existing) return _incoming
+	if (!_incoming) return _existing
+
+	// Normalize string references to TRef nodes
+	let existing = unwrapResponseSchema(_existing, vendors)
+	let incoming = unwrapResponseSchema(_incoming, vendors)
+
+	if (!existing && !incoming) return undefined
+	if (incoming && !existing) return incoming as any
+	if (existing && !incoming) return existing as any
+
+	// @ts-ignore
+	if (isTSchema(existing) || existing?.['~standard'])
+		existing = {
+			200: existing as TSchema
+		}
+
+	// @ts-ignore
+	if (isTSchema(incoming) || incoming?.['~standard'])
+		incoming = {
+			200: incoming as TSchema
+		}
+
+	const schema: Record<string, unknown> = {
+		...incoming
+	}
+
+	for (const status of Object.keys(existing ?? {})) {
+		const existingSchema = (existing as any)[status]
+		const incomingSchema = (incoming as any)[status]
+
+		if (existingSchema && incomingSchema)
+			schema[status] = mergeSchemaProperty(
+				existingSchema as TSchema,
+				incomingSchema as TSchema,
+				vendors
+			)
+		else if (existingSchema) schema[status] = existingSchema
+		else if (incomingSchema) schema[status] = incomingSchema
+	}
+
+	// Both are status code objects, merge them
+	return schema as any
+}
+
+/**
+ * Merge standaloneValidator array into direct hook properties
+ */
+const mergeStandaloneValidators = (
+	hooks: LocalHook<
+		{},
+		{
+			response: {}
+			return: {}
+			resolve: {}
+		},
+		SingletonBase,
+		{}
+	> & {
+		standaloneValidator?: InputSchema[]
+	} & InputSchema,
+	vendors?: MapJsonSchema
+) => {
+	const merged = { ...hooks }
+
+	if (!hooks.standaloneValidator?.length) return merged
+
+	for (const validator of hooks.standaloneValidator) {
+		// Merge each schema property
+		if (validator.body)
+			merged.body = mergeSchemaProperty(
+				merged.body as TSchema,
+				validator.body as TSchema,
+				vendors
+			)
+
+		if (validator.headers)
+			merged.headers = mergeSchemaProperty(
+				merged.headers as TSchema,
+				validator.headers as TSchema,
+				vendors
+			)
+
+		if (validator.query)
+			merged.query = mergeSchemaProperty(
+				merged.query as TSchema,
+				validator.query as TSchema,
+				vendors
+			)
+
+		if (validator.params)
+			merged.params = mergeSchemaProperty(
+				merged.params as TSchema,
+				validator.params as TSchema,
+				vendors
+			)
+
+		if (validator.cookie)
+			merged.cookie = mergeSchemaProperty(
+				merged.cookie as TSchema,
+				validator.cookie as TSchema,
+				vendors
+			)
+
+		if (validator.response)
+			merged.response = mergeResponseSchema(
+				merged.response as TSchema,
+				validator.response as TSchema,
+				vendors
+			)
+	}
+
+	// Normalize any remaining string references in the final result
+	if (typeof merged.body === 'string')
+		merged.body = normalizeSchemaReference(merged.body)
+	if (typeof merged.headers === 'string')
+		merged.headers = normalizeSchemaReference(merged.headers)
+	if (typeof merged.query === 'string')
+		merged.query = normalizeSchemaReference(merged.query)
+	if (typeof merged.params === 'string')
+		merged.params = normalizeSchemaReference(merged.params)
+	if (typeof merged.cookie === 'string')
+		merged.cookie = normalizeSchemaReference(merged.cookie)
+	if (merged.response && typeof merged.response !== 'string') {
+		// Normalize string references in status code objects
+		const response = merged.response as any
+		if ('type' in response || '$ref' in response) {
+			// It's a schema, not a status code object
+			if (typeof response === 'string')
+				merged.response = normalizeSchemaReference(response)
+		} else {
+			// It's a status code object, normalize each value
+			for (const [status, schema] of Object.entries(response))
+				if (typeof schema === 'string')
+					response[status] = normalizeSchemaReference(schema)
+		}
+	}
+
+	return merged
+}
+
+/**
+ * Flatten routes by merging guard() schemas into direct hook properties.
+ *
+ * This makes guard() schemas accessible in the OpenAPI spec by converting
+ * the standaloneValidator array into direct hook properties.
+ */
+const flattenRoutes = (routes: any[], vendors?: MapJsonSchema): any[] =>
+	routes.map((route) => {
+		if (!route.hooks?.standaloneValidator?.length) return route
+
+		return {
+			...route,
+			hooks: mergeStandaloneValidators(route.hooks, vendors)
+		}
+	})
+
+// ============================================================================
+
 const unwrapReference = <T extends OpenAPIV3.SchemaObject | undefined>(
 	schema: T,
 	definitions: Record<string, unknown>
@@ -127,19 +509,35 @@ const unwrapReference = <T extends OpenAPIV3.SchemaObject | undefined>(
 
 export const unwrapSchema = (
 	schema: InputSchema['body'],
-	mapJsonSchema?: MapJsonSchema
+	mapJsonSchema?: MapJsonSchema,
+	io: 'input' | 'output' = 'input'
 ): OpenAPIV3.SchemaObject | undefined => {
 	if (!schema) return
 
 	if (typeof schema === 'string') schema = toRef(schema)
 	if (Kind in schema) return enumToOpenApi(schema)
 
-	if (Kind in schema || !schema?.['~standard']) return
+	// Already unwrapped by merging standalone validators
+	if (
+		!schema?.['~standard'] &&
+		// @ts-ignore
+		(schema.$schema || schema.type || schema.properties || schema.items)
+	)
+		return schema as OpenAPIV3.SchemaObject
+
+	if (!schema?.['~standard']) return
 
 	// @ts-ignore
 	const vendor = schema['~standard'].vendor
 
 	try {
+		// @ts-ignore
+		if (schema['~standard']?.jsonSchema?.[io])
+		// @ts-ignore
+			return schema['~standard']?.jsonSchema?.[io]?.({
+				target: "draft-2020-12"
+			})
+
 		if (
 			mapJsonSchema?.[vendor] &&
 			typeof mapJsonSchema[vendor] === 'function'
@@ -213,6 +611,11 @@ export const unwrapSchema = (
 	}
 }
 
+/**
+ * Convert TypeBox enum-like Union schemas to OpenAPI enum schemas
+ *
+ * Otherwise, return the schema as is
+ */
 export const enumToOpenApi = <
 	T extends
 		| TAnySchema
@@ -294,9 +697,6 @@ export function toOpenAPISchema(
 	// @ts-ignore
 	const definitions = app.getGlobalDefinitions?.().type
 
-	// @ts-ignore private property
-	const routes = app.getGlobalRoutes()
-
 	if (references) {
 		if (!Array.isArray(references)) references = [references]
 
@@ -307,6 +707,10 @@ export function toOpenAPISchema(
 		}
 	}
 
+	// Flatten routes to merge guard() schemas into direct hook properties
+	// This makes guard schemas accessible for OpenAPI documentation generation
+	// @ts-ignore private property
+	const routes = flattenRoutes(app.getGlobalRoutes(), vendors)
 	for (const route of routes) {
 		if (route.hooks?.detail?.hide) continue
 
@@ -582,7 +986,7 @@ export function toOpenAPISchema(
 				!(hooks.response as any)['~standard']
 			) {
 				for (let [status, schema] of Object.entries(hooks.response)) {
-					const response = unwrapSchema(schema, vendors)
+					const response = unwrapSchema(schema, vendors, 'output')
 
 					if (!response) continue
 
@@ -615,7 +1019,11 @@ export function toOpenAPISchema(
 					}
 				}
 			} else {
-				const response = unwrapSchema(hooks.response as any, vendors)
+				const response = unwrapSchema(
+					hooks.response as any,
+					vendors,
+					'output'
+				)
 
 				if (response) {
 					// @ts-ignore

@@ -100,82 +100,82 @@ export const openapi = <
 	}
 
 	const app = new Elysia({ name: '@elysiajs/openapi' })
-		.use((app) => {
-			if (provider === null) return app
 
-			const page = () =>
-				new Response(
-					provider === 'swagger-ui'
-						? SwaggerUIRender(info, {
+	app.use((app) => {
+		if (provider === null) return app
+
+		const page = () =>
+			new Response(
+				provider === 'swagger-ui'
+					? SwaggerUIRender(info, {
+							url: relativePath,
+							dom_id: '#swagger-ui',
+							version: 'latest',
+							autoDarkMode: true,
+							...swagger
+						})
+					: ScalarRender(
+							info,
+							{
 								url: relativePath,
-								dom_id: '#swagger-ui',
 								version: 'latest',
-								autoDarkMode: true,
-								...swagger
-							})
-						: ScalarRender(
-								info,
-								{
-									url: relativePath,
-									version: 'latest',
-									cdn: `https://cdn.jsdelivr.net/npm/@scalar/api-reference@${scalar?.version ?? 'latest'}/dist/browser/standalone.min.js`,
-									...(scalar as ApiReferenceConfiguration),
-									_integration: 'elysiajs'
-								},
-								embedSpec
-									? JSON.stringify(
-											totalRoutes === app.routes.length
-												? cachedSchema
-												: toFullSchema(
-														toOpenAPISchema(
-															app,
-															exclude,
-															references,
-															mapJsonSchema
-														)
+								cdn: `https://cdn.jsdelivr.net/npm/@scalar/api-reference@${scalar?.version ?? 'latest'}/dist/browser/standalone.min.js`,
+								...(scalar as ApiReferenceConfiguration),
+								_integration: 'elysiajs'
+							},
+							embedSpec
+								? JSON.stringify(
+										totalRoutes === app.routes.length
+											? cachedSchema
+											: toFullSchema(
+													toOpenAPISchema(
+														app,
+														exclude,
+														references,
+														mapJsonSchema
 													)
-										)
-									: undefined
-							),
-					{
-						headers: {
-							'content-type': 'text/html; charset=utf8'
-						}
-					}
-				)
-
-			return app.get(
-				path,
-				embedSpec || isCloudflareWorker() ? page : page(),
+												)
+									)
+								: undefined
+						),
 				{
-					detail: {
-						hide: true
+					headers: {
+						'content-type': 'text/html; charset=utf8'
 					}
 				}
 			)
-		})
-		.get(
-			specPath,
-			function openAPISchema(): OpenAPIV3.Document {
-				if (totalRoutes === app.routes.length && cachedSchema)
-					return cachedSchema
 
-				totalRoutes = app.routes.length
-
-				return toFullSchema(
-					toOpenAPISchema(app, exclude, references, mapJsonSchema)
-				)
-			},
+		return app.get(
+			path,
+			embedSpec || isCloudflareWorker() ? page : page(),
 			{
-				error({ error }) {
-					console.log('[@elysiajs/openapi] error at specPath')
-					console.warn(error)
-				},
 				detail: {
 					hide: true
 				}
 			}
 		)
+	}).get(
+		specPath,
+		function openAPISchema(): OpenAPIV3.Document {
+			if (totalRoutes === app.routes.length && cachedSchema)
+				return cachedSchema
+
+			totalRoutes = app.routes.length
+
+			return toFullSchema(
+				toOpenAPISchema(app, exclude, references, mapJsonSchema)
+			)
+		},
+		{
+			error({ error }) {
+				console.log('[@elysiajs/openapi] error at specPath')
+				console.warn(error)
+			},
+			detail: {
+				hide: true
+			}
+		}
+	)
 
 	return app
 }
