@@ -531,18 +531,18 @@ export const unwrapSchema = (
 	const vendor = schema['~standard'].vendor
 
 	try {
-		// @ts-ignore
-		if (schema['~standard']?.jsonSchema?.[io])
-		// @ts-ignore
-			return schema['~standard']?.jsonSchema?.[io]?.({
-				target: "draft-2020-12"
-			})
-
 		if (
 			mapJsonSchema?.[vendor] &&
 			typeof mapJsonSchema[vendor] === 'function'
 		)
 			return enumToOpenApi(mapJsonSchema[vendor](schema))
+
+		// @ts-ignore
+		if (schema['~standard']?.jsonSchema?.[io])
+			// @ts-ignore
+			return enumToOpenApi(schema['~standard'].jsonSchema[io]({
+				target: 'draft-2020-12'
+			}))
 
 		switch (vendor) {
 			case 'zod':
