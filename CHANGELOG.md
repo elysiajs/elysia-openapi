@@ -1,3 +1,7 @@
+# 1.4.14 - 21 Jan 2026
+Improvement:
+- [#317](https://github.com/elysiajs/elysia-openapi/pull/317)
+
 # 1.4.13 - 26 Dec 2025
 Bug fix:
 - merge multiple standalone standard schema
