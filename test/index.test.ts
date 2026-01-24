@@ -272,4 +272,27 @@ describe('Swagger', () => {
 		const response = await res.json()
 		expect(Object.keys(response.paths['/all'])).toBeArrayOfSize(8)
 	})
+
+	// https://github.com/elysiajs/elysia-openapi/issues/275
+	it('should exclude entry points excluded by `exclude.path` option', async () => {
+		const app = new Elysia()
+			.use(
+				openapi({
+					exclude: {
+						paths: [/^\/v1/, "/v2"],
+					},
+				})
+			)
+			.get("/", () => "index")
+			.get("/v1", () => "v1")
+			.get("/v1/foo", () => "v1")
+			.get("/v2", () => "v2")
+
+		await app.modules
+
+		const res = await app.handle(req('/openapi/json'))
+		expect(res.status).toBe(200)
+		const response = await res.json()
+		expect(Object.keys(response.paths)).toStrictEqual(["/"])
+	})
 })
