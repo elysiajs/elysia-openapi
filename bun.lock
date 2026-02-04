@@ -4,9 +4,6 @@
   "workspaces": {
     "": {
       "name": "@elysiajs/openapi",
-      "dependencies": {
-        "elysia": "https://pkg.pr.new/elysiajs/elysia@1637",
-      },
       "devDependencies": {
         "@apidevtools/swagger-parser": "^12.0.0",
         "@scalar/types": "^0.2.13",
