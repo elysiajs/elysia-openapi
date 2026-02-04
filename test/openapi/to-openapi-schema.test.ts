@@ -1276,4 +1276,32 @@ describe('OpenAPI > toOpenAPISchema', () => {
 			}
 		})
 	})
+
+	it('include body schema when parse is "none"', () => {
+		const app = new Elysia().post(
+			'/echo',
+			({ request }) => request,
+			{
+				body: t.Object({ input: t.String() }),
+				parse: 'none'
+			}
+		)
+
+		const schema = JSON.parse(JSON.stringify(toOpenAPISchema(app)))
+
+		expect(schema.paths['/echo'].post.requestBody).toBeDefined()
+		expect(schema.paths['/echo'].post.requestBody.content).toBeDefined()
+		expect(
+			schema.paths['/echo'].post.requestBody.content['application/json']
+		).toBeDefined()
+		expect(
+			schema.paths['/echo'].post.requestBody.content['application/json'].schema
+		).toEqual({
+			type: 'object',
+			properties: {
+				input: { type: 'string' }
+			},
+			required: ['input']
+		})
+	})
 })
