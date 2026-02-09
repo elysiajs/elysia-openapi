@@ -693,7 +693,9 @@ export function toOpenAPISchema(
 			? [exclude.paths]
 			: []
 
-	const ignorePatterns = excludePaths.filter((path) => path instanceof RegExp)
+	const ignorePatterns: RegExp[] = excludePaths.filter(
+		(path): path is RegExp => path instanceof RegExp
+	)
 
 	const paths: OpenAPIV3.PathsObject = Object.create(null)
 	// @ts-ignore
