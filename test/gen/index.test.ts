@@ -986,3 +986,105 @@ describe('Gen > route section trimming', () => {
 		expect(objects.length).toBe(1)
 	})
 })
+
+describe('Gen > import() type references', () => {
+	it('replaces import("...").Type with unknown', () => {
+		const reference = declarationToJSONSchema(`{
+			users: {
+				get: {
+					params: {}
+					query: unknown
+					headers: unknown
+					body: unknown
+					response: {
+						200: {
+							id: string;
+							updates: import("@futurity/db/schema/common.types").Update[] | null;
+						}
+					}
+				}
+			}
+		}`)
+
+		const route = serializable(reference)!['/users'] as any
+		expect(route.get.response['200'].properties.id).toEqual({
+			type: 'string'
+		})
+		// import(...).Update[] | null becomes unknown[] | null
+		expect(route.get.response['200'].properties.updates).toEqual({
+			anyOf: [
+				{ type: 'array', items: {} },
+				{ type: 'null' }
+			]
+		})
+	})
+
+	it('handles complex Drizzle-derived types with nullable fields and unions', () => {
+		const reference = declarationToJSONSchema(`{
+			api: {
+				v4: {
+					getUser: {
+						post: {
+							params: {}
+							query: unknown
+							headers: unknown
+							body: { id: string }
+							response: {
+								200: {
+									id: string;
+									name: string;
+									email: string;
+									organization_id: string | null;
+									is_email_verified: boolean;
+									known_ips: string[] | null;
+									preferences: {
+										defaultDashboardId?: string | null;
+										developerModeEnabled?: boolean;
+										keybinds?: Record<string, string>;
+									} | null;
+									type: "internal" | "external";
+								}
+							}
+						}
+					}
+				}
+			}
+		}`)
+
+		const route = serializable(reference)!['/api/v4/getUser'] as any
+		const schema = route.post.response['200']
+
+		// Basic string fields
+		expect(schema.properties.id).toEqual({ type: 'string' })
+		expect(schema.properties.email).toEqual({ type: 'string' })
+
+		// string | null union
+		expect(schema.properties.organization_id).toEqual({
+			anyOf: [{ type: 'string' }, { type: 'null' }]
+		})
+
+		// boolean
+		expect(schema.properties.is_email_verified).toEqual({
+			type: 'boolean'
+		})
+
+		// string[] | null
+		expect(schema.properties.known_ips).toEqual({
+			anyOf: [
+				{ type: 'array', items: { type: 'string' } },
+				{ type: 'null' }
+			]
+		})
+
+		// Nested object | null with optional fields
+		expect(schema.properties.preferences.anyOf).toBeDefined()
+
+		// String literal union
+		expect(schema.properties.type).toEqual({
+			anyOf: [
+				{ const: 'internal', type: 'string' },
+				{ const: 'external', type: 'string' }
+			]
+		})
+	})
+})

@@ -182,6 +182,13 @@ export function declarationToJSONSchema(
 	)) {
 		let processed = route.replaceAll(/readonly/g, '')
 
+		// Replace import("...").TypeName references with `unknown`
+		// since TypeBox cannot resolve cross-module imports
+		processed = processed.replace(
+			/import\([^)]*\)\.\w+/g,
+			'unknown'
+		)
+
 		// Inline any type aliases so TypeBox resolves them
 		if (typeAliases) processed = inlineTypeReferences(processed, typeAliases)
 
