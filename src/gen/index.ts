@@ -118,7 +118,7 @@ export function extractRootObjects(code: string) {
 
 /**
  * Extract type alias definitions from a declaration string and return
- * a map of name → body (e.g. `User` → `{ id: string; name: string; }`)
+ * a map of name -> body (e.g. `User` -> `{ id: string; name: string; }`)
  */
 export function extractTypeAliases(declaration: string): Record<string, string> {
 	const aliases: Record<string, string> = {}
