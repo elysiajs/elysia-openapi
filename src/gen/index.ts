@@ -120,7 +120,7 @@ export function extractRootObjects(code: string) {
  * Extract type alias definitions from a declaration string and return
  * a map of name → body (e.g. `User` → `{ id: string; name: string; }`)
  */
-function extractTypeAliases(declaration: string): Record<string, string> {
+export function extractTypeAliases(declaration: string): Record<string, string> {
 	const aliases: Record<string, string> = {}
 	const typePattern = /\btype\s+(\w+)\s*=\s*/g
 	let match: RegExpExecArray | null
@@ -154,7 +154,7 @@ function extractTypeAliases(declaration: string): Record<string, string> {
  * Replace type references with their inlined definitions so that
  * TypeBox can produce concrete schemas instead of unresolvable $refs
  */
-function inlineTypeReferences(
+export function inlineTypeReferences(
 	code: string,
 	aliases: Record<string, string>
 ): string {
