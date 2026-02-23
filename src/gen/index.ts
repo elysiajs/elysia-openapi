@@ -2,7 +2,8 @@ import { TypeBox } from '@sinclair/typemap'
 import type { AdditionalReference } from '../types'
 
 const matchRoute = /: Elysia<(.*)>/gs
-const numberKey = /(\d+):/g
+// Only match standalone numeric keys (not digits embedded in identifiers like v4)
+const numberKey = /(?<=^|[{;,\s])(\d+):/g
 
 export interface OpenAPIGeneratorOptions {
 	/**
@@ -115,14 +116,76 @@ export function extractRootObjects(code: string) {
 	return results
 }
 
-export function declarationToJSONSchema(declaration: string) {
+/**
+ * Extract type alias definitions from a declaration string and return
+ * a map of name → body (e.g. `User` → `{ id: string; name: string; }`)
+ */
+function extractTypeAliases(declaration: string): Record<string, string> {
+	const aliases: Record<string, string> = {}
+	const typePattern = /\btype\s+(\w+)\s*=\s*/g
+	let match: RegExpExecArray | null
+
+	while ((match = typePattern.exec(declaration)) !== null) {
+		const name = match[1]
+		const startIdx = match.index + match[0].length
+
+		// If the type body starts with `{`, scan for the matching `}`
+		if (declaration[startIdx] === '{') {
+			let depth = 0
+			let end = startIdx
+			for (; end < declaration.length; end++) {
+				if (declaration[end] === '{') depth++
+				else if (declaration[end] === '}') {
+					depth--
+					if (depth === 0) {
+						end++
+						break
+					}
+				}
+			}
+			aliases[name] = declaration.slice(startIdx, end)
+		}
+	}
+
+	return aliases
+}
+
+/**
+ * Replace type references with their inlined definitions so that
+ * TypeBox can produce concrete schemas instead of unresolvable $refs
+ */
+function inlineTypeReferences(
+	code: string,
+	aliases: Record<string, string>
+): string {
+	// Sort by name length descending to avoid partial replacements
+	const names = Object.keys(aliases).sort((a, b) => b.length - a.length)
+	for (const name of names) {
+		// Replace standalone type references (not part of another identifier)
+		code = code.replace(
+			new RegExp(`\\b${name}\\b`, 'g'),
+			aliases[name]
+		)
+	}
+	return code
+}
+
+export function declarationToJSONSchema(
+	declaration: string,
+	typeAliases?: Record<string, string>
+) {
 	const routes: AdditionalReference = {}
 
 	// Treaty is a collection of { ... } & { ... } & { ... }
 	for (const route of extractRootObjects(
 		declaration.replace(numberKey, '"$1":')
 	)) {
-		let schema = TypeBox(route.replaceAll(/readonly/g, ''))
+		let processed = route.replaceAll(/readonly/g, '')
+
+		// Inline any type aliases so TypeBox resolves them
+		if (typeAliases) processed = inlineTypeReferences(processed, typeAliases)
+
+		let schema = TypeBox(processed)
 		if (schema.type !== 'object') continue
 
 		const paths = []
@@ -383,6 +446,10 @@ export const fromTypes =
 			if (!debug && fs.existsSync(tmpRoot))
 				fs.rmSync(tmpRoot, { recursive: true, force: true })
 
+			// Extract type aliases from the declaration preamble
+			// so we can inline them into route schemas
+			const typeAliases = extractTypeAliases(declaration)
+
 			let instance = declaration.match(
 				instanceName
 					? new RegExp(`${instanceName}: Elysia<(.*)`, 'gs')
@@ -391,11 +458,11 @@ export const fromTypes =
 
 			if (!instance) return
 
-			// Get 5th generic parameter
-			// Elysia<'', {}, {}, {}, Routes>
+			// Get 5th generic parameter (the routes map)
+			// Elysia<'', {}, {}, {}, Routes, {}, {}>
 			// ------------------------^
 			//         1   2   3   4   5
-			// We want the 4th one
+			// We want the 4th one (0-indexed: skip 3 `}, {` boundaries)
 			for (let i = 0; i < 3; i++)
 				instance = instance.slice(
 					instance.indexOf(
@@ -405,7 +472,24 @@ export const fromTypes =
 					)
 				)
 
-			return declarationToJSONSchema(instance.slice(2))
+			// Trim trailing generic params after the routes object
+			// The routes param ends at the next top-level `}, {`
+			let routeSection = instance.slice(2)
+			let depth = 0
+			let routeEnd = -1
+			for (let i = 0; i < routeSection.length; i++) {
+				if (routeSection[i] === '{') depth++
+				else if (routeSection[i] === '}') {
+					depth--
+					if (depth === 0) {
+						routeEnd = i + 1
+						break
+					}
+				}
+			}
+			if (routeEnd > 0) routeSection = routeSection.slice(0, routeEnd)
+
+			return declarationToJSONSchema(routeSection, typeAliases)
 		} catch (error) {
 			console.warn(
 				'[@elysiajs/openapi/gen] Failed to generate OpenAPI schema'
