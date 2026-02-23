@@ -988,8 +988,12 @@ describe('Gen > route section trimming', () => {
 })
 
 describe('Gen > import() type references', () => {
-	it('replaces import("...").Type with unknown', () => {
-		const reference = declarationToJSONSchema(`{
+	it('strips import("...") prefix and inlines resolved type aliases', () => {
+		const typeAliases = {
+			Update: '{ type: string; timestamp: string; }'
+		}
+		const reference = declarationToJSONSchema(
+			`{
 			users: {
 				get: {
 					params: {}
@@ -1004,19 +1008,59 @@ describe('Gen > import() type references', () => {
 					}
 				}
 			}
+		}`,
+			typeAliases
+		)
+
+		const route = serializable(reference)!['/users'] as any
+		expect(route.get.response['200'].properties.id).toEqual({
+			type: 'string'
+		})
+		// import(...).Update[] | null resolves to the inlined type
+		expect(route.get.response['200'].properties.updates).toEqual({
+			anyOf: [
+				{
+					type: 'array',
+					items: {
+						type: 'object',
+						required: ['type', 'timestamp'],
+						properties: {
+							type: { type: 'string' },
+							timestamp: { type: 'string' }
+						}
+					}
+				},
+				{ type: 'null' }
+			]
+		})
+	})
+
+	it('falls back gracefully when import type is not in aliases', () => {
+		// Without typeAliases, the import reference becomes just the type name
+		// which TypeBox treats as an unresolvable reference
+		const reference = declarationToJSONSchema(`{
+			users: {
+				get: {
+					params: {}
+					query: unknown
+					headers: unknown
+					body: unknown
+					response: {
+						200: {
+							id: string;
+							updates: import("some/module").Unknown[] | null;
+						}
+					}
+				}
+			}
 		}`)
 
 		const route = serializable(reference)!['/users'] as any
 		expect(route.get.response['200'].properties.id).toEqual({
 			type: 'string'
 		})
-		// import(...).Update[] | null becomes unknown[] | null
-		expect(route.get.response['200'].properties.updates).toEqual({
-			anyOf: [
-				{ type: 'array', items: {} },
-				{ type: 'null' }
-			]
-		})
+		// Unresolved type still produces a schema (TypeBox $ref)
+		expect(route.get.response['200'].properties.updates).toBeDefined()
 	})
 
 	it('handles complex Drizzle-derived types with nullable fields and unions', () => {

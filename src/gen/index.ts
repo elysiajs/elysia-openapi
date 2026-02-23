@@ -143,7 +143,12 @@ export function extractTypeAliases(declaration: string): Record<string, string> 
 					}
 				}
 			}
-			aliases[name] = declaration.slice(startIdx, end)
+			aliases[name] = declaration
+				.slice(startIdx, end)
+				// Strip single-line comments that would break TypeBox parsing
+				.replace(/\/\/[^\n]*/g, '')
+				// Strip multi-line comments
+				.replace(/\/\*[\s\S]*?\*\//g, '')
 		}
 	}
 
@@ -170,6 +175,150 @@ export function inlineTypeReferences(
 	return code
 }
 
+/**
+ * Scan a declaration for `import("...").TypeName` references,
+ * use TypeScript's module resolution to find the source files,
+ * and extract the type aliases from them.
+ *
+ * This allows TypeBox to produce concrete schemas for cross-module types
+ * (e.g. Drizzle ORM types imported from another package).
+ */
+export function resolveImportedTypes(
+	declaration: string,
+	projectRoot: string,
+	tsconfigPath: string,
+	sourceFilePath: string,
+	existingAliases: Record<string, string>,
+	fs: {
+		existsSync: (path: string) => boolean
+		readFileSync: (path: string, encoding: BufferEncoding) => string
+	}
+): Record<string, string> {
+	const aliases = { ...existingAliases }
+
+	// Collect all import("...").TypeName references
+	const importPattern = /import\("([^"]+)"\)\.(\w+)/g
+	const imports = new Map<string, Set<string>>()
+	let match: RegExpExecArray | null
+
+	while ((match = importPattern.exec(declaration)) !== null) {
+		const [, modulePath, typeName] = match
+		if (aliases[typeName]) continue // already resolved
+		if (!imports.has(modulePath)) imports.set(modulePath, new Set())
+		imports.get(modulePath)!.add(typeName)
+	}
+
+	if (imports.size === 0) return aliases
+
+	// Use TypeScript's module resolution if available
+	let ts: typeof import('typescript') | undefined
+	try {
+		ts = require('typescript')
+	} catch {
+		// TypeScript not available as a library — fall back to heuristics
+	}
+
+	let compilerOptions: Record<string, any> = {}
+	if (ts) {
+		const fullTsconfigPath = tsconfigPath.startsWith('/')
+			? tsconfigPath
+			: join(projectRoot, tsconfigPath)
+
+		if (fs.existsSync(fullTsconfigPath)) {
+			const configFile = ts.readConfigFile(fullTsconfigPath, (path) =>
+				fs.readFileSync(path, 'utf8')
+			)
+			if (configFile.config) {
+				const parsed = ts.parseJsonConfigFileContent(
+					configFile.config,
+					ts.sys,
+					projectRoot
+				)
+				compilerOptions = parsed.options
+			}
+		}
+	}
+
+	for (const [modulePath, typeNames] of imports) {
+		let resolvedFile: string | undefined
+
+		if (ts) {
+			// Use TypeScript's module resolution (handles paths, exports, monorepos)
+			// Resolve relative to the source file so workspace package symlinks work
+			const containingFile = sourceFilePath.startsWith('/')
+				? sourceFilePath
+				: join(projectRoot, sourceFilePath)
+			const resolved = ts.resolveModuleName(
+				modulePath,
+				containingFile,
+				compilerOptions,
+				ts.sys
+			)
+			const fileName =
+				resolved.resolvedModule?.resolvedFileName
+			if (fileName && fs.existsSync(fileName)) {
+				resolvedFile = fileName
+			}
+		}
+
+		// Fallback: try common locations manually
+		if (!resolvedFile) {
+			const candidates: string[] = []
+
+			if (modulePath.startsWith('.') || modulePath.startsWith('/')) {
+				const base = modulePath.startsWith('/')
+					? modulePath
+					: join(projectRoot, modulePath)
+				candidates.push(
+					base + '.ts',
+					base + '.d.ts',
+					base + '/index.ts',
+					base + '/index.d.ts'
+				)
+			} else {
+				candidates.push(
+					join(projectRoot, 'node_modules', modulePath + '.ts'),
+					join(projectRoot, 'node_modules', modulePath + '.d.ts'),
+					join(
+						projectRoot,
+						'node_modules',
+						modulePath + '/index.ts'
+					),
+					join(
+						projectRoot,
+						'node_modules',
+						modulePath + '/index.d.ts'
+					)
+				)
+			}
+
+			for (const candidate of candidates) {
+				if (fs.existsSync(candidate)) {
+					resolvedFile = candidate
+					break
+				}
+			}
+		}
+
+		if (!resolvedFile) continue
+
+		try {
+			const source = fs.readFileSync(resolvedFile, 'utf8')
+			const moduleAliases = extractTypeAliases(source)
+
+			for (const typeName of typeNames) {
+				if (moduleAliases[typeName]) {
+					aliases[typeName] = moduleAliases[typeName]
+				}
+			}
+		} catch {
+			// Skip unreadable files
+		}
+	}
+
+	return aliases
+}
+
 export function declarationToJSONSchema(
 	declaration: string,
 	typeAliases?: Record<string, string>
@@ -182,11 +331,11 @@ export function declarationToJSONSchema(
 	)) {
 		let processed = route.replaceAll(/readonly/g, '')
 
-		// Replace import("...").TypeName references with `unknown`
-		// since TypeBox cannot resolve cross-module imports
+		// Replace import("...").TypeName with just TypeName
+		// (the type should already be in typeAliases from resolveImportedTypes)
 		processed = processed.replace(
-			/import\([^)]*\)\.\w+/g,
-			'unknown'
+			/import\([^)]*\)\.(\w+)/g,
+			'$1'
 		)
 
 		// Inline any type aliases so TypeBox resolves them
@@ -455,7 +604,17 @@ export const fromTypes =
 
 			// Extract type aliases from the declaration preamble
 			// so we can inline them into route schemas
-			const typeAliases = extractTypeAliases(declaration)
+			let typeAliases = extractTypeAliases(declaration)
+
+			// Resolve cross-module import("...").TypeName references
+			typeAliases = resolveImportedTypes(
+				declaration,
+				projectRoot,
+				tsconfigPath,
+				src,
+				typeAliases,
+				fs
+			)
 
 			let instance = declaration.match(
 				instanceName
