@@ -8,7 +8,8 @@ const tsupConfig: Options = {
 	splitting: false,
 	sourcemap: false,
 	clean: true,
-	bundle: true
+	bundle: true,
+	external: ['typescript', '@sinclair/typebox']
 } satisfies Options
 
 await Promise.all([

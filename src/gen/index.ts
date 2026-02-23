@@ -2,7 +2,8 @@ import { TypeBox } from '@sinclair/typemap'
 import type { AdditionalReference } from '../types'
 
 const matchRoute = /: Elysia<(.*)>/gs
-const numberKey = /(\d+):/g
+// Only match standalone numeric keys (not digits embedded in identifiers like v4)
+const numberKey = /(?<=^|[{;,\s])(\d+):/g
 
 export interface OpenAPIGeneratorOptions {
 	/**
@@ -115,14 +116,339 @@ export function extractRootObjects(code: string) {
 	return results
 }
 
-export function declarationToJSONSchema(declaration: string) {
+/**
+ * Extract type alias definitions from a declaration string and return
+ * a map of name -> body (e.g. `User` -> `{ id: string; name: string; }`)
+ */
+export function extractTypeAliases(declaration: string): Record<string, string> {
+	const aliases: Record<string, string> = {}
+	const typePattern = /\btype\s+(\w+)\s*=\s*/g
+	let match: RegExpExecArray | null
+
+	while ((match = typePattern.exec(declaration)) !== null) {
+		const name = match[1]
+		const startIdx = match.index + match[0].length
+
+		// If the type body starts with `{`, scan for the matching `}`
+		if (declaration[startIdx] === '{') {
+			let depth = 0
+			let end = startIdx
+			for (; end < declaration.length; end++) {
+				if (declaration[end] === '{') depth++
+				else if (declaration[end] === '}') {
+					depth--
+					if (depth === 0) {
+						end++
+						break
+					}
+				}
+			}
+			aliases[name] = declaration
+				.slice(startIdx, end)
+				// Strip single-line comments that would break TypeBox parsing
+				.replace(/\/\/[^\n]*/g, '')
+				// Strip multi-line comments
+				.replace(/\/\*[\s\S]*?\*\//g, '')
+		}
+	}
+
+	return aliases
+}
+
+/**
+ * Replace type references with their inlined definitions so that
+ * TypeBox can produce concrete schemas instead of unresolvable $refs
+ */
+export function inlineTypeReferences(
+	code: string,
+	aliases: Record<string, string>
+): string {
+	// Sort by name length descending to avoid partial replacements
+	const names = Object.keys(aliases).sort((a, b) => b.length - a.length)
+	for (const name of names) {
+		// Replace standalone type references (not part of another identifier)
+		code = code.replace(
+			new RegExp(`\\b${name}\\b`, 'g'),
+			aliases[name]
+		)
+	}
+	return code
+}
+
+/**
+ * Scan a declaration for `import("...").TypeName` references,
+ * use TypeScript's module resolution to find the source files,
+ * and extract the type aliases from them.
+ *
+ * This allows TypeBox to produce concrete schemas for cross-module types
+ * (e.g. Drizzle ORM types imported from another package).
+ */
+export function resolveImportedTypes(
+	declaration: string,
+	projectRoot: string,
+	tsconfigPath: string,
+	sourceFilePath: string,
+	existingAliases: Record<string, string>,
+	fs: {
+		existsSync: (path: string) => boolean
+		readFileSync: (path: string, encoding: BufferEncoding) => string
+	}
+): Record<string, string> {
+	const aliases = { ...existingAliases }
+
+	// Collect all import("...").TypeName references
+	const importPattern = /import\("([^"]+)"\)\.(\w+)/g
+	const imports = new Map<string, Set<string>>()
+	let match: RegExpExecArray | null
+
+	while ((match = importPattern.exec(declaration)) !== null) {
+		const [, modulePath, typeName] = match
+		if (aliases[typeName]) continue // already resolved
+		if (!imports.has(modulePath)) imports.set(modulePath, new Set())
+		imports.get(modulePath)!.add(typeName)
+	}
+
+	if (imports.size === 0) return aliases
+
+	let ts: typeof import('typescript')
+	try {
+		ts = require('typescript')
+	} catch {
+		throw new Error(
+			'@elysiajs/openapi: typescript is required to resolve import() type references. ' +
+			'Install it with: bun add -d typescript'
+		)
+	}
+
+	let compilerOptions: Record<string, any> = {}
+	const fullTsconfigPath = tsconfigPath.startsWith('/')
+		? tsconfigPath
+		: join(projectRoot, tsconfigPath)
+
+	if (fs.existsSync(fullTsconfigPath)) {
+		const configFile = ts.readConfigFile(fullTsconfigPath, (path) =>
+			fs.readFileSync(path, 'utf8')
+		)
+		if (configFile.config) {
+			const parsed = ts.parseJsonConfigFileContent(
+				configFile.config,
+				ts.sys,
+				projectRoot
+			)
+			compilerOptions = parsed.options
+		}
+	}
+
+	for (const [modulePath, typeNames] of imports) {
+		let resolvedFile: string | undefined
+
+		// Use TypeScript's module resolution (handles paths, exports, monorepos)
+		// Resolve relative to the source file so workspace package symlinks work
+		const containingFile = sourceFilePath.startsWith('/')
+			? sourceFilePath
+			: join(projectRoot, sourceFilePath)
+		const resolved = ts.resolveModuleName(
+			modulePath,
+			containingFile,
+			compilerOptions,
+			ts.sys
+		)
+		const fileName =
+			resolved.resolvedModule?.resolvedFileName
+		if (fileName && fs.existsSync(fileName)) {
+			resolvedFile = fileName
+		}
+
+		if (!resolvedFile) continue
+
+		try {
+			const source = fs.readFileSync(resolvedFile, 'utf8')
+			const moduleAliases = extractTypeAliases(source)
+
+			for (const typeName of typeNames) {
+				if (moduleAliases[typeName]) {
+					aliases[typeName] = moduleAliases[typeName]
+				}
+			}
+		} catch {
+			// Skip unreadable files
+		}
+	}
+
+	return aliases
+}
+
+/**
+ * Flatten nested intersections so that each root object represents a single route.
+ *
+ * Multi-route Elysia plugins produce declarations like:
+ *   { api: { v3: { a: {...} } & { b: {...} } } }
+ *
+ * This distributes the outer structure over the inner intersection:
+ *   { api: { v3: { a: {...} } } } & { api: { v3: { b: {...} } } }
+ *
+ * This way `extractRootObjects` and TypeBox can process each route individually.
+ */
+export function flattenNestedIntersections(declaration: string): string {
+	// Repeatedly flatten until no nested intersections remain
+	let result = declaration
+	let changed = true
+
+	while (changed) {
+		changed = false
+		// Find a `key: { ... } & { ... }` pattern where the `& {` is inside
+		// a property value (not at the top level between root objects).
+		// We scan for `} & {` and check if it's nested inside a property.
+		const parts = splitAtTopLevelIntersections(result)
+		const flattened: string[] = []
+
+		for (const part of parts) {
+			const expanded = expandOneLevel(part)
+			if (expanded.length > 1) changed = true
+			flattened.push(...expanded)
+		}
+
+		result = flattened.join(' & ')
+	}
+
+	return result
+}
+
+/**
+ * Split a declaration string at top-level `& ` boundaries (brace-aware).
+ */
+function splitAtTopLevelIntersections(decl: string): string[] {
+	const parts: string[] = []
+	let depth = 0
+	let start = 0
+
+	for (let i = 0; i < decl.length; i++) {
+		const ch = decl[i]
+		if (ch === '{') depth++
+		else if (ch === '}') depth--
+		else if (depth === 0 && ch === '&') {
+			parts.push(decl.slice(start, i).trim())
+			start = i + 1
+		}
+	}
+
+	const last = decl.slice(start).trim()
+	if (last) parts.push(last)
+	return parts.filter(Boolean)
+}
+
+/**
+ * Given a single object string like `{ api: { v3: { a: 1 } & { b: 2 }; }; }`,
+ * find the deepest nested intersection and distribute the parent over it.
+ * Returns multiple strings if an intersection was found, or the original string if not.
+ */
+function expandOneLevel(obj: string): string[] {
+	// Find `} & {` at the deepest nesting level
+	let bestIdx = -1
+	let bestDepth = -1
+	let depth = 0
+
+	for (let i = 0; i < obj.length - 4; i++) {
+		const ch = obj[i]
+		if (ch === '{') depth++
+		else if (ch === '}') {
+			depth--
+			// Check for `} & {` pattern
+			const rest = obj.slice(i)
+			const m = rest.match(/^\}\s*&\s*\{/)
+			if (m && depth > bestDepth) {
+				bestIdx = i
+				bestDepth = depth
+			}
+		}
+	}
+
+	if (bestIdx === -1) return [obj]
+
+	// Find the enclosing property — walk backwards from the `} & {` to find
+	// the opening `{` at the same depth that starts this intersection group.
+	// Then walk forward to find all `& {` members.
+
+	// Find the start of the intersection group: the `{` that opened the first member.
+	// We start from `bestIdx` (the `}` in `} & {`). That `}` closes the first member,
+	// so depth starts at 1 (we're "inside" one closing brace) and we look for
+	// the `{` that brings depth back to 0.
+	let groupStart = -1
+	depth = 1
+	for (let i = bestIdx - 1; i >= 0; i--) {
+		if (obj[i] === '}') depth++
+		else if (obj[i] === '{') {
+			depth--
+			if (depth === 0) {
+				groupStart = i
+				break
+			}
+		}
+	}
+
+	if (groupStart === -1) return [obj]
+
+	// Find the end of the intersection group: scan forward from groupStart
+	// collecting all `{ ... } & { ... } & { ... }` members
+	const members: string[] = []
+	let pos = groupStart
+	while (pos < obj.length) {
+		if (obj[pos] !== '{') break
+		// Find matching close brace
+		depth = 0
+		let end = pos
+		for (; end < obj.length; end++) {
+			if (obj[end] === '{') depth++
+			else if (obj[end] === '}') {
+				depth--
+				if (depth === 0) { end++; break }
+			}
+		}
+		members.push(obj.slice(pos, end))
+		pos = end
+		// Skip ` & ` separator
+		const sep = obj.slice(pos).match(/^\s*&\s*/)
+		if (sep) pos += sep[0].length
+		else break
+	}
+
+	if (members.length <= 1) return [obj]
+
+	// The prefix is everything before groupStart, suffix is everything after the group
+	const prefix = obj.slice(0, groupStart)
+	const suffix = obj.slice(pos)
+
+	// Distribute: for each member, wrap with prefix + suffix
+	return members.map((member) => prefix + member + suffix)
+}
+
+export function declarationToJSONSchema(
+	declaration: string,
+	typeAliases?: Record<string, string>
+) {
 	const routes: AdditionalReference = {}
+
+	// Flatten nested intersections (from multi-route plugins) so each
+	// root object represents a single route path
+	const flattened = flattenNestedIntersections(declaration)
 
 	// Treaty is a collection of { ... } & { ... } & { ... }
 	for (const route of extractRootObjects(
-		declaration.replace(numberKey, '"$1":')
+		flattened.replace(numberKey, '"$1":')
 	)) {
-		let schema = TypeBox(route.replaceAll(/readonly/g, ''))
+		let processed = route.replaceAll(/readonly/g, '')
+
+		// Replace import("...").TypeName with just TypeName
+		// (the type should already be in typeAliases from resolveImportedTypes)
+		processed = processed.replace(
+			/import\([^)]*\)\.(\w+)/g,
+			'$1'
+		)
+
+		// Inline any type aliases so TypeBox resolves them
+		if (typeAliases) processed = inlineTypeReferences(processed, typeAliases)
+
+		let schema = TypeBox(processed)
 		if (schema.type !== 'object') continue
 
 		const paths = []
@@ -159,6 +485,51 @@ export function declarationToJSONSchema(declaration: string) {
 	}
 
 	return routes
+}
+
+/**
+ * Extract the Nth (0-indexed) top-level generic parameter from
+ * a string that starts with `: Elysia<...>` or `Elysia<...>`.
+ *
+ * Tracks `<>`, `{}`, `[]`, `()` depth so that commas inside
+ * nested generics or object literals are not counted as separators.
+ */
+export function extractGenericParam(
+	instance: string,
+	paramIndex: number
+): string | undefined {
+	// Find the opening `<` of the Elysia generic
+	const openAngle = instance.indexOf('<')
+	if (openAngle === -1) return undefined
+
+	let depth = 0
+	let currentParam = 0
+	let paramStart = openAngle + 1
+
+	for (let i = openAngle + 1; i < instance.length; i++) {
+		const ch = instance[i]
+
+		if (ch === '<' || ch === '{' || ch === '[' || ch === '(') {
+			depth++
+		} else if (ch === '>' || ch === '}' || ch === ']' || ch === ')') {
+			if (depth === 0) {
+				// We've hit the closing `>` of the Elysia generic
+				if (currentParam === paramIndex) {
+					return instance.slice(paramStart, i).trim()
+				}
+				return undefined // param index out of range
+			}
+			depth--
+		} else if (ch === ',' && depth === 0) {
+			if (currentParam === paramIndex) {
+				return instance.slice(paramStart, i).trim()
+			}
+			currentParam++
+			paramStart = i + 1
+		}
+	}
+
+	return undefined
 }
 
 /**
@@ -383,6 +754,20 @@ export const fromTypes =
 			if (!debug && fs.existsSync(tmpRoot))
 				fs.rmSync(tmpRoot, { recursive: true, force: true })
 
+			// Extract type aliases from the declaration preamble
+			// so we can inline them into route schemas
+			let typeAliases = extractTypeAliases(declaration)
+
+			// Resolve cross-module import("...").TypeName references
+			typeAliases = resolveImportedTypes(
+				declaration,
+				projectRoot,
+				tsconfigPath,
+				src,
+				typeAliases,
+				fs
+			)
+
 			let instance = declaration.match(
 				instanceName
 					? new RegExp(`${instanceName}: Elysia<(.*)`, 'gs')
@@ -391,21 +776,14 @@ export const fromTypes =
 
 			if (!instance) return
 
-			// Get 5th generic parameter
-			// Elysia<'', {}, {}, {}, Routes>
-			// ------------------------^
-			//         1   2   3   4   5
-			// We want the 4th one
-			for (let i = 0; i < 3; i++)
-				instance = instance.slice(
-					instance.indexOf(
-						'}, {',
-						// remove just `}, `, leaving `{`
-						3
-					)
-				)
+			// Get 5th generic parameter (the routes map)
+			// Elysia<Prefix, Scoped, Singleton, Definitions, Routes, Metadata, Routes>
+			// The params can be any type (string, `any`, objects, etc.),
+			// so we must parse by counting commas at depth 0 (brace-aware).
+			const routeSection = extractGenericParam(instance, 4)
+			if (!routeSection) return
 
-			return declarationToJSONSchema(instance.slice(2))
+			return declarationToJSONSchema(routeSection, typeAliases)
 		} catch (error) {
 			console.warn(
 				'[@elysiajs/openapi/gen] Failed to generate OpenAPI schema'
