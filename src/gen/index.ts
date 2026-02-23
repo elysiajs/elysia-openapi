@@ -278,15 +278,163 @@ export function resolveImportedTypes(
 	return aliases
 }
 
+/**
+ * Flatten nested intersections so that each root object represents a single route.
+ *
+ * Multi-route Elysia plugins produce declarations like:
+ *   { api: { v3: { a: {...} } & { b: {...} } } }
+ *
+ * This distributes the outer structure over the inner intersection:
+ *   { api: { v3: { a: {...} } } } & { api: { v3: { b: {...} } } }
+ *
+ * This way `extractRootObjects` and TypeBox can process each route individually.
+ */
+export function flattenNestedIntersections(declaration: string): string {
+	// Repeatedly flatten until no nested intersections remain
+	let result = declaration
+	let changed = true
+
+	while (changed) {
+		changed = false
+		// Find a `key: { ... } & { ... }` pattern where the `& {` is inside
+		// a property value (not at the top level between root objects).
+		// We scan for `} & {` and check if it's nested inside a property.
+		const parts = splitAtTopLevelIntersections(result)
+		const flattened: string[] = []
+
+		for (const part of parts) {
+			const expanded = expandOneLevel(part)
+			if (expanded.length > 1) changed = true
+			flattened.push(...expanded)
+		}
+
+		result = flattened.join(' & ')
+	}
+
+	return result
+}
+
+/**
+ * Split a declaration string at top-level `& ` boundaries (brace-aware).
+ */
+function splitAtTopLevelIntersections(decl: string): string[] {
+	const parts: string[] = []
+	let depth = 0
+	let start = 0
+
+	for (let i = 0; i < decl.length; i++) {
+		const ch = decl[i]
+		if (ch === '{') depth++
+		else if (ch === '}') depth--
+		else if (depth === 0 && ch === '&') {
+			parts.push(decl.slice(start, i).trim())
+			start = i + 1
+		}
+	}
+
+	const last = decl.slice(start).trim()
+	if (last) parts.push(last)
+	return parts.filter(Boolean)
+}
+
+/**
+ * Given a single object string like `{ api: { v3: { a: 1 } & { b: 2 }; }; }`,
+ * find the deepest nested intersection and distribute the parent over it.
+ * Returns multiple strings if an intersection was found, or the original string if not.
+ */
+function expandOneLevel(obj: string): string[] {
+	// Find `} & {` at the deepest nesting level
+	let bestIdx = -1
+	let bestDepth = -1
+	let depth = 0
+
+	for (let i = 0; i < obj.length - 4; i++) {
+		const ch = obj[i]
+		if (ch === '{') depth++
+		else if (ch === '}') {
+			depth--
+			// Check for `} & {` pattern
+			const rest = obj.slice(i)
+			const m = rest.match(/^\}\s*&\s*\{/)
+			if (m && depth > bestDepth) {
+				bestIdx = i
+				bestDepth = depth
+			}
+		}
+	}
+
+	if (bestIdx === -1) return [obj]
+
+	// Find the enclosing property — walk backwards from the `} & {` to find
+	// the opening `{` at the same depth that starts this intersection group.
+	// Then walk forward to find all `& {` members.
+
+	// Find the start of the intersection group: the `{` that opened the first member.
+	// We start from `bestIdx` (the `}` in `} & {`). That `}` closes the first member,
+	// so depth starts at 1 (we're "inside" one closing brace) and we look for
+	// the `{` that brings depth back to 0.
+	let groupStart = -1
+	depth = 1
+	for (let i = bestIdx - 1; i >= 0; i--) {
+		if (obj[i] === '}') depth++
+		else if (obj[i] === '{') {
+			depth--
+			if (depth === 0) {
+				groupStart = i
+				break
+			}
+		}
+	}
+
+	if (groupStart === -1) return [obj]
+
+	// Find the end of the intersection group: scan forward from groupStart
+	// collecting all `{ ... } & { ... } & { ... }` members
+	const members: string[] = []
+	let pos = groupStart
+	while (pos < obj.length) {
+		if (obj[pos] !== '{') break
+		// Find matching close brace
+		depth = 0
+		let end = pos
+		for (; end < obj.length; end++) {
+			if (obj[end] === '{') depth++
+			else if (obj[end] === '}') {
+				depth--
+				if (depth === 0) { end++; break }
+			}
+		}
+		members.push(obj.slice(pos, end))
+		pos = end
+		// Skip ` & ` separator
+		const sep = obj.slice(pos).match(/^\s*&\s*/)
+		if (sep) pos += sep[0].length
+		else break
+	}
+
+	if (members.length <= 1) return [obj]
+
+	// The prefix is everything before groupStart, suffix is everything after the group
+	const prefix = obj.slice(0, groupStart)
+	const suffix = obj.slice(pos)
+
+	// Distribute: for each member, wrap with prefix + suffix
+	return members.map((member) => prefix + member + suffix)
+}
+
 export function declarationToJSONSchema(
 	declaration: string,
 	typeAliases?: Record<string, string>
 ) {
 	const routes: AdditionalReference = {}
 
+	// Flatten nested intersections (from multi-route plugins) so each
+	// root object represents a single route path
+	const flattened = flattenNestedIntersections(declaration)
+
 	// Treaty is a collection of { ... } & { ... } & { ... }
 	for (const route of extractRootObjects(
-		declaration.replace(numberKey, '"$1":')
+		flattened.replace(numberKey, '"$1":')
 	)) {
 		let processed = route.replaceAll(/readonly/g, '')
 
@@ -337,6 +485,51 @@ export function declarationToJSONSchema(
 	}
 
 	return routes
+}
+
+/**
+ * Extract the Nth (0-indexed) top-level generic parameter from
+ * a string that starts with `: Elysia<...>` or `Elysia<...>`.
+ *
+ * Tracks `<>`, `{}`, `[]`, `()` depth so that commas inside
+ * nested generics or object literals are not counted as separators.
+ */
+export function extractGenericParam(
+	instance: string,
+	paramIndex: number
+): string | undefined {
+	// Find the opening `<` of the Elysia generic
+	const openAngle = instance.indexOf('<')
+	if (openAngle === -1) return undefined
+
+	let depth = 0
+	let currentParam = 0
+	let paramStart = openAngle + 1
+
+	for (let i = openAngle + 1; i < instance.length; i++) {
+		const ch = instance[i]
+
+		if (ch === '<' || ch === '{' || ch === '[' || ch === '(') {
+			depth++
+		} else if (ch === '>' || ch === '}' || ch === ']' || ch === ')') {
+			if (depth === 0) {
+				// We've hit the closing `>` of the Elysia generic
+				if (currentParam === paramIndex) {
+					return instance.slice(paramStart, i).trim()
+				}
+				return undefined // param index out of range
+			}
+			depth--
+		} else if (ch === ',' && depth === 0) {
+			if (currentParam === paramIndex) {
+				return instance.slice(paramStart, i).trim()
+			}
+			currentParam++
+			paramStart = i + 1
+		}
+	}
+
+	return undefined
 }
 
 /**
@@ -584,35 +777,11 @@ export const fromTypes =
 			if (!instance) return
 
 			// Get 5th generic parameter (the routes map)
-			// Elysia<'', {}, {}, {}, Routes, {}, {}>
-			// ------------------------^
-			//         1   2   3   4   5
-			// We want the 4th one (0-indexed: skip 3 `}, {` boundaries)
-			for (let i = 0; i < 3; i++)
-				instance = instance.slice(
-					instance.indexOf(
-						'}, {',
-						// remove just `}, `, leaving `{`
-						3
-					)
-				)
-
-			// Trim trailing generic params after the routes object
-			// The routes param ends at the next top-level `}, {`
-			let routeSection = instance.slice(2)
-			let depth = 0
-			let routeEnd = -1
-			for (let i = 0; i < routeSection.length; i++) {
-				if (routeSection[i] === '{') depth++
-				else if (routeSection[i] === '}') {
-					depth--
-					if (depth === 0) {
-						routeEnd = i + 1
-						break
-					}
-				}
-			}
-			if (routeEnd > 0) routeSection = routeSection.slice(0, routeEnd)
+			// Elysia<Prefix, Scoped, Singleton, Definitions, Routes, Metadata, Routes>
+			// The params can be any type (string, `any`, objects, etc.),
+			// so we must parse by counting commas at depth 0 (brace-aware).
+			const routeSection = extractGenericParam(instance, 4)
+			if (!routeSection) return
 
 			return declarationToJSONSchema(routeSection, typeAliases)
 		} catch (error) {
