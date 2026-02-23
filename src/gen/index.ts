@@ -210,94 +210,53 @@ export function resolveImportedTypes(
 
 	if (imports.size === 0) return aliases
 
-	// Use TypeScript's module resolution if available
-	let ts: typeof import('typescript') | undefined
+	let ts: typeof import('typescript')
 	try {
 		ts = require('typescript')
 	} catch {
-		// TypeScript not available as a library — fall back to heuristics
+		throw new Error(
+			'@elysiajs/openapi: typescript is required to resolve import() type references. ' +
+			'Install it with: bun add -d typescript'
+		)
 	}
 
 	let compilerOptions: Record<string, any> = {}
-	if (ts) {
-		const fullTsconfigPath = tsconfigPath.startsWith('/')
-			? tsconfigPath
-			: join(projectRoot, tsconfigPath)
+	const fullTsconfigPath = tsconfigPath.startsWith('/')
+		? tsconfigPath
+		: join(projectRoot, tsconfigPath)
 
-		if (fs.existsSync(fullTsconfigPath)) {
-			const configFile = ts.readConfigFile(fullTsconfigPath, (path) =>
-				fs.readFileSync(path, 'utf8')
+	if (fs.existsSync(fullTsconfigPath)) {
+		const configFile = ts.readConfigFile(fullTsconfigPath, (path) =>
+			fs.readFileSync(path, 'utf8')
+		)
+		if (configFile.config) {
+			const parsed = ts.parseJsonConfigFileContent(
+				configFile.config,
+				ts.sys,
+				projectRoot
 			)
-			if (configFile.config) {
-				const parsed = ts.parseJsonConfigFileContent(
-					configFile.config,
-					ts.sys,
-					projectRoot
-				)
-				compilerOptions = parsed.options
-			}
+			compilerOptions = parsed.options
 		}
 	}
 
 	for (const [modulePath, typeNames] of imports) {
 		let resolvedFile: string | undefined
 
-		if (ts) {
-			// Use TypeScript's module resolution (handles paths, exports, monorepos)
-			// Resolve relative to the source file so workspace package symlinks work
-			const containingFile = sourceFilePath.startsWith('/')
-				? sourceFilePath
-				: join(projectRoot, sourceFilePath)
-			const resolved = ts.resolveModuleName(
-				modulePath,
-				containingFile,
-				compilerOptions,
-				ts.sys
-			)
-			const fileName =
-				resolved.resolvedModule?.resolvedFileName
-			if (fileName && fs.existsSync(fileName)) {
-				resolvedFile = fileName
-			}
-		}
-
-		// Fallback: try common locations manually
-		if (!resolvedFile) {
-			const candidates: string[] = []
-
-			if (modulePath.startsWith('.') || modulePath.startsWith('/')) {
-				const base = modulePath.startsWith('/')
-					? modulePath
-					: join(projectRoot, modulePath)
-				candidates.push(
-					base + '.ts',
-					base + '.d.ts',
-					base + '/index.ts',
-					base + '/index.d.ts'
-				)
-			} else {
-				candidates.push(
-					join(projectRoot, 'node_modules', modulePath + '.ts'),
-					join(projectRoot, 'node_modules', modulePath + '.d.ts'),
-					join(
-						projectRoot,
-						'node_modules',
-						modulePath + '/index.ts'
-					),
-					join(
-						projectRoot,
-						'node_modules',
-						modulePath + '/index.d.ts'
-					)
-				)
-			}
-
-			for (const candidate of candidates) {
-				if (fs.existsSync(candidate)) {
-					resolvedFile = candidate
-					break
-				}
-			}
+		// Use TypeScript's module resolution (handles paths, exports, monorepos)
+		// Resolve relative to the source file so workspace package symlinks work
+		const containingFile = sourceFilePath.startsWith('/')
+			? sourceFilePath
+			: join(projectRoot, sourceFilePath)
+		const resolved = ts.resolveModuleName(
+			modulePath,
+			containingFile,
+			compilerOptions,
+			ts.sys
+		)
+		const fileName =
+			resolved.resolvedModule?.resolvedFileName
+		if (fileName && fs.existsSync(fileName)) {
+			resolvedFile = fileName
 		}
 
 		if (!resolvedFile) continue
