@@ -436,7 +436,6 @@ describe('Gen > Type Gen', () => {
 
 		expect(serializable(reference)!).toEqual({
 			'/': {
-				derive: {},
 				get: {
 					body: {},
 					headers: {},
@@ -474,11 +473,7 @@ describe('Gen > Type Gen', () => {
 							type: 'object'
 						}
 					}
-				},
-				resolve: {},
-				response: {},
-				schema: {},
-				standaloneschema: {}
+				}
 			},
 			'/character': {
 				post: {
