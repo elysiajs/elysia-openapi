@@ -1,31 +1,31 @@
 import type { OpenAPIV3 } from 'openapi-types'
-import type { ApiReferenceConfiguration } from '@scalar/types'
 import { ElysiaOpenAPIConfig } from '../types'
 
 const elysiaCSS = `.light-mode {
-  --scalar-color-1: #2a2f45;
-  --scalar-color-2: #757575;
-  --scalar-color-3: #8e8e8e;
-  --scalar-color-accent: #f06292;
+  --scalar-color-1: oklch(43.5% 0.029 321.78);
+  --scalar-color-2: oklch(54.2% 0.034 322.5);
+  --scalar-color-3: oklch(71.1% 0.019 323.02);
+  --scalar-color-accent: oklch(71.2% 0.194 13.428);
 
-  --scalar-background-1: #fff;
-  --scalar-background-2: #f6f6f6;
-  --scalar-background-3: #e7e7e7;
+  --scalar-background-1: oklch(98.5% 0 0);
+  --scalar-background-2: oklch(96% 0.003 325.6);
+  --scalar-background-3: oklch(92.2% 0.005 325.62);
 
-  --scalar-border-color: rgba(0, 0, 0, 0.1);
+  --scalar-border-color: oklch(92.2% 0.005 325.62);
 }
+
 .dark-mode {
-  --scalar-color-1: rgba(255, 255, 255, 0.9);
-  --scalar-color-2: rgba(156, 163, 175, 1);
-  --scalar-color-3: rgba(255, 255, 255, 0.44);
-  --scalar-color-accent: #f06292;
+  --scalar-color-1: oklch(98.5% 0 0);
+  --scalar-color-2: oklch(71.1% 0.019 323.02);
+  --scalar-color-3: oklch(86.5% 0.012 325.68);
+  --scalar-color-accent: oklch(89.2% 0.058 10.001);
 
-  --scalar-background-1: #111728;
-  --scalar-background-2: #1e293b;
-  --scalar-background-3: #334155;
-  --scalar-background-accent: #f062921f;
+  --scalar-background-1: oklch(21.2% 0.019 322.12);
+  --scalar-background-2: oklch(26.3% 0.024 320.12);
+  --scalar-background-3: oklch(36.4% 0.029 323.89);
+  --scalar-background-accent: oklch(43.5% 0.029 321.78);
 
-  --scalar-border-color: rgba(255, 255, 255, 0.1);
+  --scalar-border-color: oklch(36.4% 0.029 323.89);
 }
 
 /* Document Sidebar */

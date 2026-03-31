@@ -1,3 +1,5 @@
+# 1.4.15 - 1 Apr 2026
+
 # 1.4.14 - 21 Jan 2026
 Improvement:
 - [#317](https://github.com/elysiajs/elysia-openapi/pull/317)
