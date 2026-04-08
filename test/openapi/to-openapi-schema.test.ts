@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import { AnyElysia, Elysia, t } from 'elysia'
 
-import { toOpenAPISchema } from '../../src/openapi'
+import { toOpenAPISchema, withHeaders } from '../../src/openapi'
 import { z } from 'zod'
 
 const is = <T extends AnyElysia>(
@@ -1271,6 +1271,135 @@ describe('OpenAPI > toOpenAPISchema', () => {
 								}
 							}
 						]
+					}
+				}
+			}
+		})
+	})
+
+	it('handle withHeaders on single response', () => {
+		const app = new Elysia().get(
+			'/user',
+			() => ({ name: 'Lilith' }) as const,
+			{
+				response: withHeaders(
+					t.Object({ name: t.String() }),
+					{
+						'x-rate-limit': t.Number(),
+						'x-request-id': t.String()
+					}
+				)
+			}
+		)
+
+		is(app, {
+			components: {
+				schemas: {}
+			},
+			paths: {
+				'/user': {
+					get: {
+						operationId: 'getUser',
+						responses: {
+							'200': {
+								description: 'Response for status 200',
+								headers: {
+									'x-rate-limit': {
+										schema: {
+											type: 'number'
+										}
+									},
+									'x-request-id': {
+										schema: {
+											type: 'string'
+										}
+									}
+								},
+								content: {
+									'application/json': {
+										schema: {
+											properties: {
+												name: {
+													type: 'string'
+												}
+											},
+											required: ['name'],
+											type: 'object'
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		})
+	})
+
+	it('handle withHeaders on multiple response status', () => {
+		const app = new Elysia().get(
+			'/user',
+			() => ({ name: 'Lilith' }) as const,
+			{
+				response: {
+					200: withHeaders(
+						t.Object({ name: t.String() }),
+						{ 'x-rate-limit': t.Number() }
+					),
+					404: t.Object({ error: t.String() })
+				}
+			}
+		)
+
+		is(app, {
+			components: {
+				schemas: {}
+			},
+			paths: {
+				'/user': {
+					get: {
+						operationId: 'getUser',
+						responses: {
+							'200': {
+								description: 'Response for status 200',
+								headers: {
+									'x-rate-limit': {
+										schema: {
+											type: 'number'
+										}
+									}
+								},
+								content: {
+									'application/json': {
+										schema: {
+											properties: {
+												name: {
+													type: 'string'
+												}
+											},
+											required: ['name'],
+											type: 'object'
+										}
+									}
+								}
+							},
+							'404': {
+								description: 'Response for status 404',
+								content: {
+									'application/json': {
+										schema: {
+											properties: {
+												error: {
+													type: 'string'
+												}
+											},
+											required: ['error'],
+											type: 'object'
+										}
+									}
+								}
+							}
+						}
 					}
 				}
 			}
