@@ -11,7 +11,6 @@ import type { OpenAPIV3 } from 'openapi-types'
 import {
 	Kind,
 	TAnySchema,
-	type TProperties,
 	type TObject
 } from '@sinclair/typebox'
 
@@ -1133,7 +1132,29 @@ export function toOpenAPISchema(
 	} satisfies Pick<OpenAPIV3.Document, 'paths' | 'components'>
 }
 
-export const withHeaders = (schema: TSchema, headers: TProperties) =>
-	Object.assign(schema, {
-		headers: headers
+type ResponseHeaderSchemas = Record<
+	string,
+	Exclude<InputSchema['headers'], undefined>
+>
+
+export const withHeaders = <
+	S extends Exclude<InputSchema['body'], string | undefined>,
+	H extends ResponseHeaderSchemas
+>(
+	schema: S,
+	headers: H
+) => {
+	const clone = Object.create(
+		Object.getPrototypeOf(schema),
+		Object.getOwnPropertyDescriptors(schema)
+	) as S & { headers: H }
+
+	Object.defineProperty(clone, 'headers', {
+		value: headers,
+		enumerable: true,
+		configurable: true,
+		writable: true
 	})
+
+	return clone
+}

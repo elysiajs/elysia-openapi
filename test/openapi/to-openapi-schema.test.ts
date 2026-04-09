@@ -1405,4 +1405,168 @@ describe('OpenAPI > toOpenAPISchema', () => {
 			}
 		})
 	})
+
+	it('does not leak headers across reused typebox response schemas', () => {
+		const response = t.Object({ name: t.String() })
+
+		const app = new Elysia()
+			.get('/with-headers', () => ({ name: 'Lilith' }) as const, {
+				response: withHeaders(response, {
+					'x-rate-limit': t.Number()
+				})
+			})
+			.get('/without-headers', () => ({ name: 'Lilith' }) as const, {
+				response
+			})
+
+		is(app, {
+			components: {
+				schemas: {}
+			},
+			paths: {
+				'/with-headers': {
+					get: {
+						operationId: 'getWith-headers',
+						responses: {
+							'200': {
+								description: 'Response for status 200',
+								headers: {
+									'x-rate-limit': {
+										schema: {
+											type: 'number'
+										}
+									}
+								},
+								content: {
+									'application/json': {
+										schema: {
+											properties: {
+												name: {
+													type: 'string'
+												}
+											},
+											required: ['name'],
+											type: 'object'
+										}
+									}
+								}
+							}
+						}
+					}
+				},
+				'/without-headers': {
+					get: {
+						operationId: 'getWithout-headers',
+						responses: {
+							'200': {
+								description: 'Response for status 200',
+								content: {
+									'application/json': {
+										schema: {
+											properties: {
+												name: {
+													type: 'string'
+												}
+											},
+											required: ['name'],
+											type: 'object'
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		})
+	})
+
+	it('does not leak headers across reused standard response schemas', () => {
+		const response = z.object({ name: z.string() })
+
+		const app = new Elysia()
+			.get('/with-headers', () => ({ name: 'Lilith' }) as const, {
+				response: withHeaders(response, {
+					'x-rate-limit': t.Number()
+				})
+			})
+			.get('/without-headers', () => ({ name: 'Lilith' }) as const, {
+				response
+			})
+
+		expect(
+			JSON.parse(
+				JSON.stringify(
+					toOpenAPISchema(app, undefined, undefined, {
+						zod: z.toJSONSchema
+					})
+				)
+			)
+		).toEqual({
+			components: {
+				schemas: {}
+			},
+			paths: {
+				'/with-headers': {
+					get: {
+						operationId: 'getWith-headers',
+						responses: {
+							'200': {
+								description: 'Response for status 200',
+								headers: {
+									'x-rate-limit': {
+										schema: {
+											type: 'number'
+										}
+									}
+								},
+								content: {
+									'application/json': {
+										schema: {
+											$schema:
+												'https://json-schema.org/draft/2020-12/schema',
+											additionalProperties: false,
+											properties: {
+												name: {
+													type: 'string'
+												}
+											},
+											required: ['name'],
+											type: 'object'
+										}
+									}
+								}
+							}
+						}
+					}
+				},
+				'/without-headers': {
+					get: {
+						operationId: 'getWithout-headers',
+						responses: {
+							'200': {
+								description: 'Response for status 200',
+								content: {
+									'application/json': {
+										schema: {
+											$schema:
+												'https://json-schema.org/draft/2020-12/schema',
+											additionalProperties: false,
+											properties: {
+												name: {
+													type: 'string'
+												}
+											},
+											required: ['name'],
+											type: 'object'
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		})
+	})
 })
