@@ -109,13 +109,21 @@ openapi({
     valibot: toJsonSchema
   }
 })`,
-	effect: `import { JSONSchema } from 'effect'
+	effect: `import { OpenApiJsonSchema } from "@effect/platform";
+	import { Schema } from "effect";
 
 openapi({
   mapJsonSchema: {
-    effect: JSONSchema.make
+    effect: OpenApiJsonSchema.make
   }
-})`
+})
+.model({
+	Date: Schema.standardSchemaV1(Schema.Date),
+	UUID: Schema.standardSchemaV1(Schema.UUID),
+	// effect breaks its own schema type to refs. add more as needed
+	// using provider: "swagger-ui", gives better error messages
+})
+`
 } as const
 
 const warned = {} as Record<keyof typeof warnings, boolean | undefined>
