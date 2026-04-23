@@ -1,6 +1,6 @@
 import type { TSchema } from 'elysia'
 import type { OpenAPIV3 } from 'openapi-types'
-import type { ApiReferenceConfiguration } from '@scalar/types'
+import type { ApiReferenceConfiguration, TagGroup } from '@scalar/types'
 import type { SwaggerUIOptions } from './swagger/types'
 
 export type OpenAPIProvider = 'scalar' | 'swagger-ui' | null
@@ -48,11 +48,7 @@ export interface ElysiaOpenAPIConfig<
 	 *
 	 * @see https://spec.openapis.org/oas/v3.0.3.html
 	 */
-	documentation?: Omit<
-		Partial<OpenAPIV3.Document>,
-		| 'x-express-openapi-additional-middleware'
-		| 'x-express-openapi-validation-strict'
-	>
+	documentation?: ElysiaSwaggerDocumentation
 
 	exclude?: {
 		/**
@@ -212,4 +208,15 @@ export interface ElysiaOpenAPIConfig<
 		 */
 		cdn?: string
 	}
+}
+
+interface ElysiaSwaggerDocumentation extends Omit<
+    Partial<OpenAPIV3.Document>,
+    | 'x-express-openapi-additional-middleware'
+    | 'x-express-openapi-validation-strict'
+> {
+    /**
+     * Group tags in Scalar UI using `x-tagGroups` property
+     */
+    'x-tagGroups'?: TagGroup[]
 }
