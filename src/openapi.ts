@@ -11,7 +11,6 @@ import type { OpenAPIV3 } from 'openapi-types'
 import {
 	Kind,
 	TAnySchema,
-	type TProperties,
 	type TObject
 } from '@sinclair/typebox'
 
@@ -668,6 +667,76 @@ export const enumToOpenApi = <
 	return schema as T
 }
 
+const toResponseHeaders = (
+	schema: InputSchema['body'],
+	vendors?: MapJsonSchema
+): Record<string, OpenAPIV3.HeaderObject> | undefined => {
+	if (
+		!schema ||
+		typeof schema === 'string' ||
+		!('headers' in schema) ||
+		!schema.headers
+	)
+		return
+
+	const entries = Object.entries(
+		schema.headers as Record<string, InputSchema['headers']>
+	)
+		.map(
+			([name, hs]) =>
+				[
+					name,
+					{ schema: unwrapSchema(hs as any, vendors, 'output') }
+				] as const
+		)
+		.filter(([, v]) => v.schema)
+
+	return entries.length ? Object.fromEntries(entries) : undefined
+}
+
+const stripHeaders = (
+	schema: OpenAPIV3.SchemaObject & { headers?: unknown }
+): OpenAPIV3.SchemaObject => {
+	const { headers, ...rest } = schema
+	return rest
+}
+
+const VOID_TYPES = new Set(['void', 'null', 'undefined'])
+const PLAIN_TYPES = new Set(['string', 'number', 'integer', 'boolean'])
+
+const toResponseContent = (
+	schema: OpenAPIV3.SchemaObject,
+	type: string | undefined,
+	description: string | undefined
+) =>
+	VOID_TYPES.has(type!)
+		? ({ type, description } as any)
+		: PLAIN_TYPES.has(type!)
+			? { 'text/plain': { schema } }
+			: { 'application/json': { schema } }
+
+const toResponseObject = (
+	schema: InputSchema['body'],
+	status: string,
+	definitions: Record<string, unknown>,
+	vendors?: MapJsonSchema
+): OpenAPIV3.ResponseObject | undefined => {
+	const response = unwrapSchema(schema, vendors, 'output')
+	if (!response) return
+
+	const responseSchema = stripHeaders(response)
+
+	// @ts-ignore Must exclude $ref from root options
+	const { type, description } = unwrapReference(responseSchema, definitions)
+	const headers = toResponseHeaders(schema, vendors)
+
+	return {
+		description: description ?? `Response for status ${status}`,
+		...(headers ? { headers } : {}),
+		content: toResponseContent(responseSchema, type, description)
+	}
+}
+
 /**
  * Converts Elysia routes to OpenAPI 3.0.3 paths schema
  * @param routes Array of Elysia route objects
@@ -986,78 +1055,24 @@ export function toOpenAPISchema(
 				!(hooks.response as any)['~standard']
 			) {
 				for (let [status, schema] of Object.entries(hooks.response)) {
-					const response = unwrapSchema(schema, vendors, 'output')
+					const response = toResponseObject(
+						schema,
+						status,
+						definitions,
+						vendors
+					)
 
-					if (!response) continue
-
-					// @ts-ignore Must exclude $ref from root options
-					const { type, description, $ref, ..._options } =
-						unwrapReference(response, definitions)
-
-					operation.responses[status] = {
-						description:
-							description ?? `Response for status ${status}`,
-						content:
-							type === 'void' ||
-							type === 'null' ||
-							type === 'undefined'
-								? ({ type, description } as any)
-								: type === 'string' ||
-									  type === 'number' ||
-									  type === 'integer' ||
-									  type === 'boolean'
-									? {
-											'text/plain': {
-												schema: response
-											}
-										}
-									: {
-											'application/json': {
-												schema: response
-											}
-										}
-					}
+					if (response) operation.responses[status] = response
 				}
 			} else {
-				const response = unwrapSchema(
-					hooks.response as any,
-					vendors,
-					'output'
+				const response = toResponseObject(
+					hooks.response as InputSchema['body'],
+					'200',
+					definitions,
+					vendors
 				)
 
-				if (response) {
-					// @ts-ignore
-					const {
-						type: _type,
-						description,
-						...options
-					} = unwrapReference(response, definitions)
-					const type = _type as string | undefined
-
-					// It's a single schema, default to 200
-					operation.responses['200'] = {
-						description: description ?? `Response for status 200`,
-						content:
-							type === 'void' ||
-							type === 'null' ||
-							type === 'undefined'
-								? ({ type, description } as any)
-								: type === 'string' ||
-									  type === 'number' ||
-									  type === 'integer' ||
-									  type === 'boolean'
-									? {
-											'text/plain': {
-												schema: response
-											}
-										}
-									: {
-											'application/json': {
-												schema: response
-											}
-										}
-					}
-				}
+				if (response) operation.responses['200'] = response
 			}
 		}
 
@@ -1117,7 +1132,29 @@ export function toOpenAPISchema(
 	} satisfies Pick<OpenAPIV3.Document, 'paths' | 'components'>
 }
 
-export const withHeaders = (schema: TSchema, headers: TProperties) =>
-	Object.assign(schema, {
-		headers: headers
+type ResponseHeaderSchemas = Record<
+	string,
+	Exclude<InputSchema['headers'], undefined>
+>
+
+export const withHeaders = <
+	S extends Exclude<InputSchema['body'], string | undefined>,
+	H extends ResponseHeaderSchemas
+>(
+	schema: S,
+	headers: H
+) => {
+	const clone = Object.create(
+		Object.getPrototypeOf(schema),
+		Object.getOwnPropertyDescriptors(schema)
+	) as S & { headers: H }
+
+	Object.defineProperty(clone, 'headers', {
+		value: headers,
+		enumerable: true,
+		configurable: true,
+		writable: true
 	})
+
+	return clone
+}
