@@ -1,7 +1,7 @@
 {
-    "name": "@elysiajs/openapi",
-    "version": "1.4.14",
-    "description": "Plugin for Elysia to auto-generate API documentation",
+    "name": "@elysia/openapi",
+    "version": "1.4.15",
+    "description": "Elysia plugin to add OpenAPI documentation",
     "author": {
         "name": "saltyAom",
         "url": "https://github.com/SaltyAom",
@@ -74,17 +74,17 @@
         "release": "npm run build && npm run test && npm publish --access public"
     },
     "devDependencies": {
-        "@apidevtools/swagger-parser": "^12.0.0",
-        "@scalar/types": "^0.2.13",
+        "@apidevtools/swagger-parser": "^12.1.0",
+        "@scalar/types": "^0.2.16",
         "@sinclair/typemap": "^0.10.1",
         "@types/bun": "1.2.20",
-        "effect": "^3.17.13",
+        "effect": "^3.21.2",
         "elysia": "1.4.19",
         "eslint": "9.6.0",
         "openapi-types": "^12.1.3",
-        "tsup": "^8.5.0",
-        "typescript": "^5.9.2",
-        "zod": "^4.2.1"
+        "tsup": "^8.5.1",
+        "typescript": "^5.9.3",
+        "zod": "^4.3.6"
     },
     "peerDependencies": {
         "elysia": ">= 1.4.0"

@@ -1,4 +1,6 @@
-# 1.4.15 - 1 Apr 2026
+# 1.4.15 - 24 Apr 2026
+Chore:
+- Published under @elysia scope
 
 # 1.4.14 - 21 Jan 2026
 Improvement:
