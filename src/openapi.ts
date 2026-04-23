@@ -936,6 +936,17 @@ export function toOpenAPISchema(
 									schema: body
 								}
 								continue
+
+							case 'none':
+								// When parse is "none", include all common content types
+								// since the raw body could be any format
+								content['application/json'] = { schema: body }
+								content['application/x-www-form-urlencoded'] = {
+									schema: body
+								}
+								content['multipart/form-data'] = { schema: body }
+								content['text/plain'] = { schema: body }
+								continue
 						}
 					}
 
