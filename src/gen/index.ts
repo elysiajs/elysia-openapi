@@ -271,25 +271,28 @@ export const fromTypes =
 					distDir = distDir.replace(/\\/g, '/')
 				}
 
+				const defaultCompilerOptions = {
+					lib: ['ESNext'],
+					module: 'ESNext',
+					noEmit: false,
+					declaration: true,
+					emitDeclarationOnly: true,
+					moduleResolution: 'bundler',
+					skipLibCheck: true,
+					skipDefaultLibCheck: true,
+					rootDir: projectRoot,
+					outDir: distDir
+				}
+
+				const mergedCompilerOptions = compilerOptions
+					? { ...defaultCompilerOptions, ...compilerOptions, noEmit: false, declaration: true, emitDeclarationOnly: true, outDir: distDir }
+					: defaultCompilerOptions
+
 				fs.writeFileSync(
 					join(tmpRoot, 'tsconfig.json'),
 					`{
 	${extendsRef}
-	"compilerOptions": ${
-		compilerOptions
-			? JSON.stringify(compilerOptions)
-			: `{
-	"lib": ["ESNext"],
-	"module": "ESNext",
-	"noEmit": false,
-	"declaration": true,
-	"emitDeclarationOnly": true,
-	"moduleResolution": "bundler",
-	"skipLibCheck": true,
-	"skipDefaultLibCheck": true,
-	"outDir": "${distDir}"
-}`
-	},
+	"compilerOptions": ${JSON.stringify(mergedCompilerOptions, null, '\t').replace(/\n/g, '\n\t')},
 	"include": ["${src}"]
 }`
 				)
