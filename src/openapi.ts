@@ -652,24 +652,10 @@ export const enumToOpenApi = <
 			return toRef(schema.$ref) as any;
 	}
 
-	const schema = _schema as OpenAPIV3.SchemaObject
+	const schema: any = Array.isArray(_schema) ? [..._schema] : { ..._schema }
 
-	if (schema.type === 'object' && schema.properties) {
-		const properties: Record<string, unknown> = {}
-		for (const [key, value] of Object.entries(schema.properties))
-			properties[key] = enumToOpenApi(value)
-
-		return {
-			...schema,
-			properties
-		} as T
-	}
-
-	if (schema.type === 'array' && schema.items)
-		return {
-			...schema,
-			items: enumToOpenApi(schema.items)
-		} as T
+	for (const [key, value] of Object.entries(schema))
+		schema[key] = enumToOpenApi(value as any)
 
 	return schema as T
 }
