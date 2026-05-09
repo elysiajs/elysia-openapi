@@ -612,7 +612,10 @@ export const unwrapSchema = (
 }
 
 /**
- * Convert TypeBox enum-like Union schemas to OpenAPI enum schemas
+ * Converts TypeBox enum-like Union schemas to OpenAPI enum schemas.
+ *
+ * Also prepends `#/components/schemas/` to TypeBox t.Ref instances
+ * if the string is not already present.
  *
  * Otherwise, return the schema as is
  */
@@ -644,26 +647,15 @@ export const enumToOpenApi = <
 				type: 'string',
 				enum: schema.anyOf.map((item) => item.const)
 			} as any
+
+		if (schema[Kind] === 'Ref' && schema.$ref)
+			return toRef(schema.$ref) as any;
 	}
 
-	const schema = _schema as OpenAPIV3.SchemaObject
+	const schema: any = Array.isArray(_schema) ? [..._schema] : { ..._schema }
 
-	if (schema.type === 'object' && schema.properties) {
-		const properties: Record<string, unknown> = {}
-		for (const [key, value] of Object.entries(schema.properties))
-			properties[key] = enumToOpenApi(value)
-
-		return {
-			...schema,
-			properties
-		} as T
-	}
-
-	if (schema.type === 'array' && schema.items)
-		return {
-			...schema,
-			items: enumToOpenApi(schema.items)
-		} as T
+	for (const [key, value] of Object.entries(schema))
+		schema[key] = enumToOpenApi(value as any)
 
 	return schema as T
 }
