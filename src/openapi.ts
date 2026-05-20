@@ -668,6 +668,105 @@ export const enumToOpenApi = <
 	return schema as T
 }
 
+// ============================================================================
+// Model Reference Resolution
+// ============================================================================
+
+const buildModelRefMap = (
+	definitions: Record<string, unknown> | undefined
+) => {
+	const map = new Map<unknown, string>()
+
+	if (definitions)
+		for (const [name, schema] of Object.entries(definitions))
+			map.set(schema, name)
+
+	return map
+}
+
+const deepEqual = (a: unknown, b: unknown): boolean => {
+	if (a === b) return true
+	if (a === null || b === null) return false
+	if (typeof a !== typeof b || typeof a !== 'object') return false
+
+	if (Array.isArray(a))
+		return Array.isArray(b)
+			&& a.length === b.length
+			&& a.every((v, i) => deepEqual(v, b[i]))
+
+	const aObj = a as Record<string, unknown>
+	const bObj = b as Record<string, unknown>
+	const aKeys = Object.keys(aObj)
+	const bKeys = Object.keys(bObj)
+
+	return aKeys.length === bKeys.length
+		&& aKeys.every((k) => deepEqual(aObj[k], bObj[k]))
+}
+
+const stripSchemaMeta = (schema: Record<string, unknown>) => {
+	const { $schema: _s, $id: _i, ...rest } = schema
+	return rest
+}
+
+/**
+ * Walk paths and replace inline schemas matching a registered model
+ * with { $ref } pointers. Handles nested cases like z.array(Model).
+ */
+const resolveNestedModelRefs = (spec: {
+	components: { schemas: Record<string, unknown> }
+	paths: Record<string, unknown>
+}) => {
+	const entries = Object.entries(spec.components.schemas)
+	if (!entries.length) return
+
+	const models = entries.map(([name, raw]) => {
+		const schema = stripSchemaMeta(raw as Record<string, unknown>)
+		spec.components.schemas[name] = schema
+		return { name, schema }
+	})
+
+	const tryReplace = (
+		node: unknown,
+		parent: Record<string, unknown> | unknown[],
+		key: string | number
+	): boolean => {
+		if (!node || typeof node !== 'object') return false
+
+		const obj = node as Record<string, unknown>
+		if ('$ref' in obj) return false
+
+		const cleaned = stripSchemaMeta(obj)
+
+		for (const model of models)
+			if (deepEqual(cleaned, model.schema)) {
+				(parent as Record<string | number, unknown>)[key] =
+					{ $ref: `#/components/schemas/${model.name}` }
+				return true
+			}
+
+		return false
+	}
+
+	const walk = (node: unknown) => {
+		if (!node || typeof node !== 'object') return
+
+		if (Array.isArray(node)) {
+			for (let i = 0; i < node.length; i++)
+				if (!tryReplace(node[i], node, i))
+					walk(node[i])
+			return
+		}
+
+		const obj = node as Record<string, unknown>
+
+		for (const key of Object.keys(obj))
+			if (!tryReplace(obj[key], obj, key))
+				walk(obj[key])
+	}
+
+	walk(spec.paths)
+}
+
 /**
  * Converts Elysia routes to OpenAPI 3.0.3 paths schema
  * @param routes Array of Elysia route objects
@@ -696,6 +795,7 @@ export function toOpenAPISchema(
 	const paths: OpenAPIV3.PathsObject = Object.create(null)
 	// @ts-ignore
 	const definitions = app.getGlobalDefinitions?.().type
+	const modelRefMap = buildModelRefMap(definitions)
 
 	if (references) {
 		if (!Array.isArray(references)) references = [references]
@@ -986,6 +1086,20 @@ export function toOpenAPISchema(
 				!(hooks.response as any)['~standard']
 			) {
 				for (let [status, schema] of Object.entries(hooks.response)) {
+					const modelName = modelRefMap.get(schema)
+
+					if (modelName) {
+						operation.responses[status] = {
+							description: `Response for status ${status}`,
+							content: {
+								'application/json': {
+									schema: { $ref: `#/components/schemas/${modelName}` }
+								}
+							}
+						}
+						continue
+					}
+
 					const response = unwrapSchema(schema, vendors, 'output')
 
 					if (!response) continue
@@ -1019,43 +1133,56 @@ export function toOpenAPISchema(
 					}
 				}
 			} else {
-				const response = unwrapSchema(
-					hooks.response as any,
-					vendors,
-					'output'
-				)
+				const modelName = modelRefMap.get(hooks.response)
 
-				if (response) {
-					// @ts-ignore
-					const {
-						type: _type,
-						description,
-						...options
-					} = unwrapReference(response, definitions)
-					const type = _type as string | undefined
-
-					// It's a single schema, default to 200
+				if (modelName) {
 					operation.responses['200'] = {
-						description: description ?? `Response for status 200`,
-						content:
-							type === 'void' ||
-							type === 'null' ||
-							type === 'undefined'
-								? ({ type, description } as any)
-								: type === 'string' ||
-									  type === 'number' ||
-									  type === 'integer' ||
-									  type === 'boolean'
-									? {
-											'text/plain': {
-												schema: response
+						description: 'Response for status 200',
+						content: {
+							'application/json': {
+								schema: { $ref: `#/components/schemas/${modelName}` }
+							}
+						}
+					}
+				} else {
+					const response = unwrapSchema(
+						hooks.response as any,
+						vendors,
+						'output'
+					)
+
+					if (response) {
+						// @ts-ignore
+						const {
+							type: _type,
+							description,
+							...options
+						} = unwrapReference(response, definitions)
+						const type = _type as string | undefined
+
+						// It's a single schema, default to 200
+						operation.responses['200'] = {
+							description: description ?? `Response for status 200`,
+							content:
+								type === 'void' ||
+								type === 'null' ||
+								type === 'undefined'
+									? ({ type, description } as any)
+									: type === 'string' ||
+										  type === 'number' ||
+										  type === 'integer' ||
+										  type === 'boolean'
+										? {
+												'text/plain': {
+													schema: response
+												}
 											}
-										}
-									: {
-											'application/json': {
-												schema: response
+										: {
+												'application/json': {
+													schema: response
+												}
 											}
-										}
+						}
 					}
 				}
 			}
@@ -1109,12 +1236,16 @@ export function toOpenAPISchema(
 			if (jsonSchema) schemas[name] = jsonSchema
 		}
 
-	return {
+	const result = {
 		components: {
 			schemas
 		},
 		paths
 	} satisfies Pick<OpenAPIV3.Document, 'paths' | 'components'>
+
+	resolveNestedModelRefs(result)
+
+	return result
 }
 
 export const withHeaders = (schema: TSchema, headers: TProperties) =>
