@@ -229,6 +229,39 @@ describe('OpenAPI > toOpenAPISchema', () => {
 		})
 	})
 
+	it('handle arrayBuffer request body', () => {
+		const app = new Elysia().post('/upload', () => 'ok', {
+			parse: 'arrayBuffer',
+			body: t.Any({
+				description: 'Binary file data'
+			})
+		})
+
+		is(app, {
+			components: {
+				schemas: {}
+			},
+			paths: {
+				'/upload': {
+					post: {
+						operationId: 'postUpload',
+						requestBody: {
+							description: 'Binary file data',
+							content: {
+								'application/octet-stream': {
+									schema: {
+										description: 'Binary file data'
+									}
+								}
+							},
+							required: true
+						}
+					}
+				}
+			}
+		})
+	})
+
 	it('handle response', () => {
 		const app = new Elysia().get(
 			'/user',
