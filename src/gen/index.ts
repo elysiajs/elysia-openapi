@@ -260,6 +260,7 @@ export const fromTypes =
 					: ''
 
 				let distDir = join(tmpRoot, 'dist')
+				let rootDir = projectRoot
 
 				// Convert Windows path to Unix for TypeScript CLI
 				if (
@@ -269,27 +270,28 @@ export const fromTypes =
 					extendsRef = extendsRef.replace(/\\/g, '/')
 					src = src.replace(/\\/g, '/')
 					distDir = distDir.replace(/\\/g, '/')
+					rootDir = rootDir.replace(/\\/g, '/')
+				}
+
+				const resolvedCompilerOptions = {
+					lib: ['ESNext'],
+					module: 'ESNext',
+					noEmit: false,
+					declaration: true,
+					emitDeclarationOnly: true,
+					moduleResolution: 'bundler',
+					skipLibCheck: true,
+					skipDefaultLibCheck: true,
+					rootDir,
+					outDir: distDir,
+					...compilerOptions
 				}
 
 				fs.writeFileSync(
 					join(tmpRoot, 'tsconfig.json'),
 					`{
 	${extendsRef}
-	"compilerOptions": ${
-		compilerOptions
-			? JSON.stringify(compilerOptions)
-			: `{
-	"lib": ["ESNext"],
-	"module": "ESNext",
-	"noEmit": false,
-	"declaration": true,
-	"emitDeclarationOnly": true,
-	"moduleResolution": "bundler",
-	"skipLibCheck": true,
-	"skipDefaultLibCheck": true,
-	"outDir": "${distDir}"
-}`
-	},
+	"compilerOptions": ${JSON.stringify(resolvedCompilerOptions)},
 	"include": ["${src}"]
 }`
 				)
