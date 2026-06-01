@@ -25,11 +25,8 @@ import type {
 export const capitalize = (word: string) =>
 	word.charAt(0).toUpperCase() + word.slice(1)
 
-const toRef = (name: string) => t.Ref(
-	name.startsWith('#/')
-		? name
-		: `#/components/schemas/${name}`
-)
+const toRef = (name: string) =>
+	t.Ref(name.startsWith('#/') ? name : `#/components/schemas/${name}`)
 
 const toOperationId = (method: string, paths: string) => {
 	let operationId = method.toLowerCase()
@@ -540,9 +537,12 @@ export const unwrapSchema = (
 		// @ts-ignore
 		if (schema['~standard']?.jsonSchema?.[io])
 			// @ts-ignore
-			return enumToOpenApi(schema['~standard'].jsonSchema[io]({
-				target: 'draft-2020-12'
-			}))
+			return enumToOpenApi(
+				// @ts-ignore
+				schema['~standard'].jsonSchema[io]({
+					target: 'draft-2020-12'
+				})
+			)
 
 		switch (vendor) {
 			case 'zod':
@@ -980,6 +980,7 @@ export function toOpenAPISchema(
 
 			if (
 				typeof hooks.response === 'object' &&
+				!(Kind in (hooks.response as object)) &&
 				// TypeBox
 				!(hooks.response as TSchema).type &&
 				!(hooks.response as TSchema).$ref &&

@@ -1,9 +1,10 @@
 import type { TSchema } from 'elysia'
-import type { OpenAPIV3 } from 'openapi-types'
+import type { OpenAPIV3, OpenAPIV3_1 } from 'openapi-types'
 import type { ApiReferenceConfiguration } from '@scalar/types'
 import type { SwaggerUIOptions } from './swagger/types'
 
 export type OpenAPIProvider = 'scalar' | 'swagger-ui' | null
+export type OpenAPIVersion = `3.0.${number}` | `3.1.${number}`
 
 type MaybeArray<T> = T | T[]
 
@@ -44,12 +45,21 @@ export interface ElysiaOpenAPIConfig<
 	enabled?: Enabled
 
 	/**
+	 * OpenAPI document version to emit
+	 *
+	 * Supports OpenAPI 3.0.x and 3.1.x
+	 *
+	 * @default '3.1.2'
+	 */
+	openapiVersion?: OpenAPIVersion
+
+	/**
 	 * OpenAPI config
 	 *
-	 * @see https://spec.openapis.org/oas/v3.0.3.html
+	 * @see https://spec.openapis.org/oas/latest.html
 	 */
 	documentation?: Omit<
-		Partial<OpenAPIV3.Document>,
+		Partial<OpenAPIV3.Document> & Partial<OpenAPIV3_1.Document>,
 		| 'x-express-openapi-additional-middleware'
 		| 'x-express-openapi-validation-strict'
 	>

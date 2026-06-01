@@ -7,8 +7,8 @@ import { fail } from 'assert'
 
 const req = (path: string) => new Request(`http://localhost${path}`)
 
-describe('Swagger', () => {
-	it('show Swagger page', async () => {
+describe('OpenAPI', () => {
+	it('show OpenAPI page', async () => {
 		const app = new Elysia().use(openapi())
 
 		await app.modules
@@ -23,11 +23,126 @@ describe('Swagger', () => {
 		await app.modules
 
 		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
-		expect(res.openapi).toBe('3.0.3')
+		expect(res.openapi).toBe('3.1.2')
 		await SwaggerParser.validate(res).catch((err) => fail(err))
 	})
 
-	it('use custom Swagger version', async () => {
+	it('emits OpenAPI 3.0.x when configured', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.0.1'
+			})
+		)
+
+		await app.modules
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+		expect(res.openapi).toBe('3.0.1')
+		await SwaggerParser.validate(res).catch((err) => fail(err))
+	})
+
+	it('emits OpenAPI 3.1.x when configured', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.1.1'
+			})
+		)
+
+		await app.modules
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+		expect(res.openapi).toBe('3.1.1')
+		await SwaggerParser.validate(res).catch((err) => fail(err))
+	})
+
+	it('passes through jsonSchemaDialect for OpenAPI 3.1', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.1.2',
+				documentation: {
+					jsonSchemaDialect:
+						'https://json-schema.org/draft/2020-12/schema'
+				}
+			})
+		)
+
+		await app.modules
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+		expect(res.openapi).toBe('3.1.2')
+		expect(res.jsonSchemaDialect).toBe(
+			'https://json-schema.org/draft/2020-12/schema'
+		)
+		await SwaggerParser.validate(res).catch((err) => fail(err))
+	})
+
+	it('supports OpenAPI 3.1 with swagger-ui provider', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.1.2',
+				provider: 'swagger-ui'
+			})
+		)
+
+		await app.modules
+
+		const page = await app.handle(req('/openapi'))
+		expect(page.status).toBe(200)
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+		expect(res.openapi).toBe('3.1.2')
+		await SwaggerParser.validate(res).catch((err) => fail(err))
+	})
+
+	it('embeds OpenAPI 3.1 spec in scalar provider when embedSpec is enabled', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.1.2',
+				provider: 'scalar',
+				embedSpec: true
+			})
+		)
+
+		await app.modules
+
+		const html = await app.handle(req('/openapi')).then((x) => x.text())
+
+		const configurationMatch = html.match(/data-configuration='([^']+)'/)
+		expect(configurationMatch).not.toBeNull()
+
+		const configuration = JSON.parse(configurationMatch![1])
+		expect(configuration.content).toBeString()
+
+		const embeddedSchema = JSON.parse(configuration.content)
+		expect(embeddedSchema.openapi).toBe('3.1.2')
+	})
+
+	it('keeps null type in union schemas for OpenAPI 3.1', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.1.2'
+			})
+		)
+
+		app.get('/nullable', () => 'hello', {
+			response: t.Union([t.String(), t.Null()])
+		})
+
+		await app.modules
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+
+		const response = res.paths['/nullable'].get.responses['200']
+		const schema =
+			response.content?.['application/json']?.schema ??
+			response.content?.['text/plain']?.schema
+
+		expect(schema).toBeDefined()
+		expect(schema.anyOf).toBeArray()
+		expect(schema.anyOf.some((x: any) => x.type === 'null')).toBe(true)
+	})
+
+	it('use custom Swagger-UI version', async () => {
 		const app = new Elysia().use(
 			openapi({
 				provider: 'swagger-ui',

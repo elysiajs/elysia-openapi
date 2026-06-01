@@ -260,6 +260,7 @@ export const fromTypes =
 					: ''
 
 				let distDir = join(tmpRoot, 'dist')
+				let rootDir = projectRoot
 
 				// Convert Windows path to Unix for TypeScript CLI
 				if (
@@ -269,6 +270,7 @@ export const fromTypes =
 					extendsRef = extendsRef.replace(/\\/g, '/')
 					src = src.replace(/\\/g, '/')
 					distDir = distDir.replace(/\\/g, '/')
+					rootDir = rootDir.replace(/\\/g, '/')
 				}
 
 				fs.writeFileSync(
@@ -287,6 +289,7 @@ export const fromTypes =
 	"moduleResolution": "bundler",
 	"skipLibCheck": true,
 	"skipDefaultLibCheck": true,
+	"rootDir": "${rootDir}",
 	"outDir": "${distDir}"
 }`
 	},
