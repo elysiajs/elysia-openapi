@@ -637,6 +637,28 @@ export const unwrapSchema = (
 	}
 }
 
+const SCHEMA_OBJECT_MAP_KEYS = new Set([
+	'properties',
+	'patternProperties',
+	'$defs',
+	'definitions',
+	'dependentSchemas'
+])
+
+const SCHEMA_ARRAY_KEYS = new Set(['allOf', 'anyOf', 'oneOf', 'prefixItems'])
+
+const SCHEMA_OR_BOOL_KEYS = new Set([
+	'items',
+	'additionalProperties',
+	'unevaluatedProperties',
+	'contains',
+	'not',
+	'if',
+	'then',
+	'else',
+	'propertyNames'
+])
+
 const normalizeNullableSchemaForOAS30 = (schema: unknown): unknown => {
 	if (!schema || typeof schema !== 'object') return schema
 
@@ -644,9 +666,6 @@ const normalizeNullableSchemaForOAS30 = (schema: unknown): unknown => {
 		return schema.map((item) => normalizeNullableSchemaForOAS30(item))
 
 	const normalized = { ...(schema as Record<string, unknown>) }
-
-	for (const [key, value] of Object.entries(normalized))
-		normalized[key] = normalizeNullableSchemaForOAS30(value)
 
 	if (normalized.type === 'null') {
 		delete normalized.type
@@ -710,6 +729,51 @@ const normalizeNullableSchemaForOAS30 = (schema: unknown): unknown => {
 		}
 	}
 
+	for (const [key, value] of Object.entries(normalized)) {
+		if (SCHEMA_OBJECT_MAP_KEYS.has(key)) {
+			if (value && typeof value === 'object' && !Array.isArray(value)) {
+				const next: Record<string, unknown> = {}
+				for (const [nestedKey, nestedValue] of Object.entries(value))
+					next[nestedKey] = normalizeNullableSchemaForOAS30(nestedValue)
+				normalized[key] = next
+			}
+			continue
+		}
+
+		if (SCHEMA_ARRAY_KEYS.has(key)) {
+			if (Array.isArray(value))
+				normalized[key] = value.map((item) =>
+					normalizeNullableSchemaForOAS30(item)
+				)
+			continue
+		}
+
+		if (SCHEMA_OR_BOOL_KEYS.has(key)) {
+			if (value && typeof value === 'object') {
+				if (Array.isArray(value))
+					normalized[key] = value.map((item) =>
+						normalizeNullableSchemaForOAS30(item)
+					)
+				else normalized[key] = normalizeNullableSchemaForOAS30(value)
+			}
+			continue
+		}
+
+		if (key === 'dependencies') {
+			if (value && typeof value === 'object' && !Array.isArray(value)) {
+				const next: Record<string, unknown> = {}
+				for (const [nestedKey, nestedValue] of Object.entries(value))
+					next[nestedKey] =
+						nestedValue &&
+						typeof nestedValue === 'object' &&
+						!Array.isArray(nestedValue)
+							? normalizeNullableSchemaForOAS30(nestedValue)
+							: nestedValue
+				normalized[key] = next
+			}
+		}
+	}
+
 	return normalized
 }
 
@@ -720,9 +784,6 @@ const normalizeNullableSchemaForOAS31 = (schema: unknown): unknown => {
 		return schema.map((item) => normalizeNullableSchemaForOAS31(item))
 
 	const normalized = { ...(schema as Record<string, unknown>) }
-
-	for (const [key, value] of Object.entries(normalized))
-		normalized[key] = normalizeNullableSchemaForOAS31(value)
 
 	const rewriteNullUnion = (key: 'anyOf' | 'oneOf') => {
 		if (!Array.isArray(normalized[key])) return
@@ -746,6 +807,51 @@ const normalizeNullableSchemaForOAS31 = (schema: unknown): unknown => {
 
 	rewriteNullUnion('anyOf')
 	rewriteNullUnion('oneOf')
+
+	for (const [key, value] of Object.entries(normalized)) {
+		if (SCHEMA_OBJECT_MAP_KEYS.has(key)) {
+			if (value && typeof value === 'object' && !Array.isArray(value)) {
+				const next: Record<string, unknown> = {}
+				for (const [nestedKey, nestedValue] of Object.entries(value))
+					next[nestedKey] = normalizeNullableSchemaForOAS31(nestedValue)
+				normalized[key] = next
+			}
+			continue
+		}
+
+		if (SCHEMA_ARRAY_KEYS.has(key)) {
+			if (Array.isArray(value))
+				normalized[key] = value.map((item) =>
+					normalizeNullableSchemaForOAS31(item)
+				)
+			continue
+		}
+
+		if (SCHEMA_OR_BOOL_KEYS.has(key)) {
+			if (value && typeof value === 'object') {
+				if (Array.isArray(value))
+					normalized[key] = value.map((item) =>
+						normalizeNullableSchemaForOAS31(item)
+					)
+				else normalized[key] = normalizeNullableSchemaForOAS31(value)
+			}
+			continue
+		}
+
+		if (key === 'dependencies') {
+			if (value && typeof value === 'object' && !Array.isArray(value)) {
+				const next: Record<string, unknown> = {}
+				for (const [nestedKey, nestedValue] of Object.entries(value))
+					next[nestedKey] =
+						nestedValue &&
+						typeof nestedValue === 'object' &&
+						!Array.isArray(nestedValue)
+							? normalizeNullableSchemaForOAS31(nestedValue)
+							: nestedValue
+				normalized[key] = next
+			}
+		}
+	}
 
 	return normalized
 }

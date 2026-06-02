@@ -35,4 +35,55 @@ describe('OpenAPI > nullToOpenAPI', () => {
 		})
 		expect(result.properties.promo_code.nullable).toBeUndefined()
 	})
+
+	it('does not treat metadata objects like default as schemas in OAS 3.0', () => {
+		const schema = {
+			type: 'object',
+			properties: {
+				promo_code: {
+					anyOf: [{ type: 'string' }, { type: 'null' }]
+				}
+			},
+			default: {
+				type: 'null',
+				reason: 'metadata'
+			}
+		}
+
+		const result = nullToOpenApi(schema as any, '3.0.3') as any
+
+		expect(result.properties.promo_code).toMatchObject({
+			type: 'string',
+			nullable: true
+		})
+		expect(result.default).toEqual({
+			type: 'null',
+			reason: 'metadata'
+		})
+	})
+
+	it('does not treat metadata objects like default as schemas in OAS 3.1', () => {
+		const schema = {
+			type: 'object',
+			properties: {
+				promo_code: {
+					anyOf: [{ type: 'string' }, { type: 'null' }]
+				}
+			},
+			default: {
+				type: 'null',
+				reason: 'metadata'
+			}
+		}
+
+		const result = nullToOpenApi(schema as any, '3.1.2') as any
+
+		expect(result.properties.promo_code).toMatchObject({
+			type: ['string', 'null']
+		})
+		expect(result.default).toEqual({
+			type: 'null',
+			reason: 'metadata'
+		})
+	})
 })
