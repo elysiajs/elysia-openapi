@@ -97,7 +97,7 @@ export const openapi = <
 		paths,
 		components: { schemas }
 	}: ReturnType<typeof toOpenAPISchema>): OpenAPIDocument => {
-		return (cachedSchema = {
+		const schema: OpenAPIDocument = {
 			...documentation,
 			openapi: effectiveOpenAPIVersion as OpenAPIVersion,
 			tags: !exclude?.tags
@@ -122,7 +122,9 @@ export const openapi = <
 					...(documentation.components?.schemas as any)
 				}
 			}
-		})
+		}
+
+		return (cachedSchema = schema)
 	}
 
 	const app = new Elysia({ name: '@elysiajs/openapi' })
@@ -158,7 +160,8 @@ export const openapi = <
 														app,
 														exclude,
 														references,
-														mapJsonSchema
+														mapJsonSchema,
+														effectiveOpenAPIVersion
 													)
 												)
 									)
@@ -189,7 +192,13 @@ export const openapi = <
 			totalRoutes = app.routes.length
 
 			return toFullSchema(
-				toOpenAPISchema(app, exclude, references, mapJsonSchema)
+				toOpenAPISchema(
+					app,
+					exclude,
+					references,
+					mapJsonSchema,
+					effectiveOpenAPIVersion
+				)
 			)
 		},
 		{

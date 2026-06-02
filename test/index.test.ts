@@ -117,7 +117,7 @@ describe('OpenAPI', () => {
 		expect(embeddedSchema.openapi).toBe('3.1.2')
 	})
 
-	it('keeps null type in union schemas for OpenAPI 3.1', async () => {
+	it('converts nullable union to type-array for OpenAPI 3.1', async () => {
 		const app = new Elysia().use(
 			openapi({
 				openapiVersion: '3.1.2'
@@ -138,8 +138,58 @@ describe('OpenAPI', () => {
 			response.content?.['text/plain']?.schema
 
 		expect(schema).toBeDefined()
-		expect(schema.anyOf).toBeArray()
-		expect(schema.anyOf.some((x: any) => x.type === 'null')).toBe(true)
+		expect(schema.type).toEqual(['string', 'null'])
+		expect(schema.anyOf).toBeUndefined()
+	})
+
+	it('converts nullable union response to nullable:true for OpenAPI 3.0', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.0.3'
+			})
+		)
+
+		app.get('/nullable-30', () => 'hello', {
+			response: t.Union([t.String(), t.Null()])
+		})
+
+		await app.modules
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+		const response = res.paths['/nullable-30'].get.responses['200']
+		const schema =
+			response.content?.['application/json']?.schema ??
+			response.content?.['text/plain']?.schema
+
+		expect(schema).toBeDefined()
+		expect(schema.type).toBe('string')
+		expect(schema.nullable).toBe(true)
+		expect(schema.anyOf).toBeUndefined()
+		await SwaggerParser.validate(res).catch((err) => fail(err))
+	})
+
+	it('treats null response as nullable schema for OpenAPI 3.0', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.0.3'
+			})
+		)
+
+		app.get('/null-30', () => null, {
+			response: t.Null()
+		})
+
+		await app.modules
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+		const schema =
+			res.paths['/null-30'].get.responses['200'].content[
+				'application/json'
+			].schema
+
+		expect(schema.nullable).toBe(true)
+		expect(schema.type).toBeUndefined()
+		await SwaggerParser.validate(res).catch((err) => fail(err))
 	})
 
 	it('use custom Swagger-UI version', async () => {

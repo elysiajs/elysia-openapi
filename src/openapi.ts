@@ -19,7 +19,8 @@ import type {
 	AdditionalReference,
 	AdditionalReferences,
 	ElysiaOpenAPIConfig,
-	MapJsonSchema
+	MapJsonSchema,
+	OpenAPIVersion
 } from './types'
 
 export const capitalize = (word: string) =>
@@ -507,12 +508,17 @@ const unwrapReference = <T extends OpenAPIV3.SchemaObject | undefined>(
 export const unwrapSchema = (
 	schema: InputSchema['body'],
 	mapJsonSchema?: MapJsonSchema,
-	io: 'input' | 'output' = 'input'
+	io: 'input' | 'output' = 'input',
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ): OpenAPIV3.SchemaObject | undefined => {
 	if (!schema) return
 
 	if (typeof schema === 'string') schema = toRef(schema)
-	if (Kind in schema) return enumToOpenApi(schema)
+	if (Kind in schema)
+		return normalizeSchemaForOpenAPIVersion(
+			enumToOpenApi(schema),
+			openapiVersion
+		)
 
 	// Already unwrapped by merging standalone validators
 	if (
@@ -520,7 +526,10 @@ export const unwrapSchema = (
 		// @ts-ignore
 		(schema.$schema || schema.type || schema.properties || schema.items)
 	)
-		return schema as OpenAPIV3.SchemaObject
+		return normalizeSchemaForOpenAPIVersion(
+			schema as OpenAPIV3.SchemaObject,
+			openapiVersion
+		)
 
 	if (!schema?.['~standard']) return
 
@@ -528,20 +537,30 @@ export const unwrapSchema = (
 	const vendor = schema['~standard'].vendor
 
 	try {
+		const jsonSchemaTarget = openapiVersion.startsWith('3.0.')
+			? 'draft-07'
+			: 'draft-2020-12'
+
 		if (
 			mapJsonSchema?.[vendor] &&
 			typeof mapJsonSchema[vendor] === 'function'
 		)
-			return enumToOpenApi(mapJsonSchema[vendor](schema))
+			return normalizeSchemaForOpenAPIVersion(
+				enumToOpenApi(mapJsonSchema[vendor](schema)),
+				openapiVersion
+			)
 
 		// @ts-ignore
 		if (schema['~standard']?.jsonSchema?.[io])
 			// @ts-ignore
-			return enumToOpenApi(
+			return normalizeSchemaForOpenAPIVersion(
+				enumToOpenApi(
 				// @ts-ignore
 				schema['~standard'].jsonSchema[io]({
-					target: 'draft-2020-12'
+					target: jsonSchemaTarget
 				})
+			),
+			openapiVersion
 			)
 
 		switch (vendor) {
@@ -600,15 +619,154 @@ export const unwrapSchema = (
 
 		if (vendor === 'arktype')
 			// @ts-ignore
-			return enumToOpenApi(schema?.toJsonSchema?.())
+			return normalizeSchemaForOpenAPIVersion(
+				// @ts-ignore
+				enumToOpenApi(schema?.toJsonSchema?.()),
+				openapiVersion
+			)
 
-		return enumToOpenApi(
-			// @ts-ignore
-			schema.toJSONSchema?.() ?? schema?.toJsonSchema?.()
+		return normalizeSchemaForOpenAPIVersion(
+			enumToOpenApi(
+				// @ts-ignore
+				schema.toJSONSchema?.() ?? schema?.toJsonSchema?.()
+			),
+			openapiVersion
 		)
 	} catch (error) {
 		console.warn(error)
 	}
+}
+
+const normalizeNullableSchemaForOAS30 = (schema: unknown): unknown => {
+	if (!schema || typeof schema !== 'object') return schema
+
+	if (Array.isArray(schema))
+		return schema.map((item) => normalizeNullableSchemaForOAS30(item))
+
+	const normalized = { ...(schema as Record<string, unknown>) }
+
+	for (const [key, value] of Object.entries(normalized))
+		normalized[key] = normalizeNullableSchemaForOAS30(value)
+
+	if (normalized.type === 'null') {
+		delete normalized.type
+		normalized.nullable = true
+		return normalized
+	}
+
+	if (Array.isArray(normalized.type) && normalized.type.includes('null')) {
+		const nonNullTypes = normalized.type.filter(
+			(type) => type !== 'null'
+		) as string[]
+
+		normalized.nullable = true
+
+		if (nonNullTypes.length === 1) normalized.type = nonNullTypes[0]
+		else if (nonNullTypes.length > 1) normalized.type = nonNullTypes
+		else delete normalized.type
+
+		return normalized
+	}
+
+	if (Array.isArray(normalized.anyOf)) {
+		const entries = normalized.anyOf as Array<Record<string, unknown>>
+		const nonNullEntries = entries.filter((entry) => {
+			const isNormalizedNullEntry =
+				entry?.nullable === true &&
+				!('type' in entry) &&
+				Object.keys(entry).length === 1
+
+			return entry?.type !== 'null' && !isNormalizedNullEntry
+		})
+
+		if (nonNullEntries.length !== entries.length) {
+			normalized.nullable = true
+
+			if (nonNullEntries.length === 1) {
+				delete normalized.anyOf
+				Object.assign(normalized, nonNullEntries[0])
+			} else normalized.anyOf = nonNullEntries
+		}
+	}
+
+	if (Array.isArray(normalized.oneOf)) {
+		const entries = normalized.oneOf as Array<Record<string, unknown>>
+		const nonNullEntries = entries.filter((entry) => {
+			const isNormalizedNullEntry =
+				entry?.nullable === true &&
+				!('type' in entry) &&
+				Object.keys(entry).length === 1
+
+			return entry?.type !== 'null' && !isNormalizedNullEntry
+		})
+
+		if (nonNullEntries.length !== entries.length) {
+			normalized.nullable = true
+
+			if (nonNullEntries.length === 1) {
+				delete normalized.oneOf
+				Object.assign(normalized, nonNullEntries[0])
+			} else normalized.oneOf = nonNullEntries
+		}
+	}
+
+	return normalized
+}
+
+const normalizeNullableSchemaForOAS31 = (schema: unknown): unknown => {
+	if (!schema || typeof schema !== 'object') return schema
+
+	if (Array.isArray(schema))
+		return schema.map((item) => normalizeNullableSchemaForOAS31(item))
+
+	const normalized = { ...(schema as Record<string, unknown>) }
+
+	for (const [key, value] of Object.entries(normalized))
+		normalized[key] = normalizeNullableSchemaForOAS31(value)
+
+	const rewriteNullUnion = (key: 'anyOf' | 'oneOf') => {
+		if (!Array.isArray(normalized[key])) return
+
+		const entries = normalized[key] as Array<Record<string, unknown>>
+		const nullEntries = entries.filter((entry) => entry?.type === 'null')
+		if (nullEntries.length === 0) return
+
+		const nonNullEntries = entries.filter((entry) => entry?.type !== 'null')
+		if (nonNullEntries.length !== 1) return
+
+		const [nonNull] = nonNullEntries
+		const nonNullType = nonNull?.type
+
+		if (typeof nonNullType !== 'string') return
+
+		delete normalized[key]
+		Object.assign(normalized, nonNull)
+		normalized.type = [nonNullType, 'null']
+	}
+
+	rewriteNullUnion('anyOf')
+	rewriteNullUnion('oneOf')
+
+	return normalized
+}
+
+export const nullToOpenApi = <T>(
+	schema: T,
+	openapiVersion: OpenAPIVersion
+): T => {
+	if (!schema) return schema
+
+	if (openapiVersion.startsWith('3.0.'))
+		return normalizeNullableSchemaForOAS30(schema) as T
+
+	return normalizeNullableSchemaForOAS31(schema) as T
+}
+
+const normalizeSchemaForOpenAPIVersion = <T>(
+	schema: T,
+	openapiVersion: OpenAPIVersion
+): T => {
+	return nullToOpenApi(schema, openapiVersion)
 }
 
 /**
@@ -677,7 +835,8 @@ export function toOpenAPISchema(
 	app: AnyElysia,
 	exclude?: ElysiaOpenAPIConfig['exclude'],
 	references?: AdditionalReferences,
-	vendors?: MapJsonSchema
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ) {
 	let {
 		methods: excludeMethods = ['options'],
@@ -803,7 +962,7 @@ export function toOpenAPISchema(
 		// Handle path parameters
 		if (hooks.params) {
 			const params = unwrapReference(
-				unwrapSchema(hooks.params, vendors),
+				unwrapSchema(hooks.params, vendors, 'input', openapiVersion),
 				definitions
 			)
 
@@ -831,7 +990,7 @@ export function toOpenAPISchema(
 		// Handle query parameters
 		if (hooks.query) {
 			const query = unwrapReference(
-				unwrapSchema(hooks.query, vendors),
+				unwrapSchema(hooks.query, vendors, 'input', openapiVersion),
 				definitions
 			)
 
@@ -850,7 +1009,7 @@ export function toOpenAPISchema(
 		// Handle header parameters
 		if (hooks.headers) {
 			const headers = unwrapReference(
-				unwrapSchema(hooks.headers, vendors),
+				unwrapSchema(hooks.headers, vendors, 'input', openapiVersion),
 				definitions
 			)
 
@@ -869,7 +1028,7 @@ export function toOpenAPISchema(
 		// Handle cookie parameters
 		if (hooks.cookie) {
 			const cookie = unwrapReference(
-				unwrapSchema(hooks.cookie, vendors),
+				unwrapSchema(hooks.cookie, vendors, 'input', openapiVersion),
 				definitions
 			)
 
@@ -890,7 +1049,12 @@ export function toOpenAPISchema(
 
 		// Handle request body
 		if (hooks.body && method !== 'get' && method !== 'head') {
-			const body = unwrapSchema(hooks.body, vendors)
+			const body = unwrapSchema(
+				hooks.body,
+				vendors,
+				'input',
+				openapiVersion
+			)
 
 			if (body) {
 				// @ts-ignore
@@ -987,7 +1151,12 @@ export function toOpenAPISchema(
 				!(hooks.response as any)['~standard']
 			) {
 				for (let [status, schema] of Object.entries(hooks.response)) {
-					const response = unwrapSchema(schema, vendors, 'output')
+					const response = unwrapSchema(
+						schema,
+						vendors,
+						'output',
+						openapiVersion
+					)
 
 					if (!response) continue
 
@@ -1023,7 +1192,8 @@ export function toOpenAPISchema(
 				const response = unwrapSchema(
 					hooks.response as any,
 					vendors,
-					'output'
+					'output',
+					openapiVersion
 				)
 
 				if (response) {
@@ -1103,7 +1273,12 @@ export function toOpenAPISchema(
 
 	if (definitions)
 		for (const [name, schema] of Object.entries(definitions)) {
-			const jsonSchema = unwrapSchema(schema as any, vendors) as
+			const jsonSchema = unwrapSchema(
+				schema as any,
+				vendors,
+				'input',
+				openapiVersion
+			) as
 				| OpenAPIV3.SchemaObject
 				| undefined
 
