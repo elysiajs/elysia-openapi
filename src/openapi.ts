@@ -684,6 +684,7 @@ export const enumToOpenApi = <
 		// Compare by canonical (sorted-key) JSON to catch different key orderings.
 		const seen = new Set<string>()
 		const deduped = mapped.filter((item) => {
+			if (!item || typeof item !== 'object') return true
 			const key = JSON.stringify(
 				Object.fromEntries(
 					Object.entries(item as object).sort(([a], [b]) =>
