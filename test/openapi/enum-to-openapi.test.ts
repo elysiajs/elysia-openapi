@@ -54,4 +54,60 @@ describe('OpenAPI > enumToOpenAPI', () => {
 
 		expect(result).toEqual(expectedSchema)
 	})
+
+	it('should replace {"type":"Date"} with {"type":"string","format":"date-time"} and deduplicate', () => {
+		// TypeBox t.Date() expands to this anyOf; "Date" is not a valid OpenAPI type
+		const schema = {
+			anyOf: [
+				{ type: 'Date' },
+				{ format: 'date-time', type: 'string' },
+				{ format: 'date', type: 'string' },
+				{ type: 'number' }
+			]
+		}
+
+		const result = enumToOpenApi(schema as any) as any
+
+		// The invalid Date entry is replaced; the duplicate date-time is removed
+		expect(result.anyOf).not.toContain(expect.objectContaining({ type: 'Date' }))
+		expect(result.anyOf).toContainEqual({ type: 'string', format: 'date-time' })
+	})
+
+	it('should preserve {"type":"null"} sibling when replacing Date in a nullable date field', () => {
+		// t.Nullable(t.Date()) — after plugin processing — can appear as this flat anyOf
+		const schema = {
+			anyOf: [{ type: 'Date' }, { type: 'null' }]
+		}
+
+		const result = enumToOpenApi(schema as any) as any
+
+		expect(result.anyOf).toContainEqual({ type: 'string', format: 'date-time' })
+		expect(result.anyOf).toContainEqual({ type: 'null' })
+		expect(result.anyOf).not.toContainEqual({ type: 'Date' })
+	})
+
+	it('should fix Date types nested in object properties', () => {
+		const schema = {
+			type: 'object',
+			properties: {
+				name: { type: 'string' },
+				createdAt: {
+					anyOf: [
+						{ type: 'Date' },
+						{ format: 'date-time', type: 'string' },
+						{ format: 'date', type: 'string' },
+						{ type: 'number' }
+					]
+				}
+			}
+		}
+
+		const result = enumToOpenApi(schema as any) as any
+
+		expect(result.properties.createdAt.anyOf).not.toContainEqual({ type: 'Date' })
+		expect(result.properties.createdAt.anyOf).toContainEqual({
+			type: 'string',
+			format: 'date-time'
+		})
+	})
 })
