@@ -669,13 +669,13 @@ export const enumToOpenApi = <
 	// "Date" is not a valid OpenAPI 3.0 type; replace it with
 	// {"type":"string","format":"date-time"} which is what Elysia actually
 	// serialises Date instances to on the wire.  Use replace (not filter) so
-	// that nullable dates — t.Nullable(t.Date()) — keep their {"type":"null"}
+	// that nullable dates ï¿½ t.Nullable(t.Date()) ï¿½ keep their {"type":"null"}
 	// sibling instead of collapsing to null-only.
 	if (schema.anyOf && Array.isArray(schema.anyOf)) {
 		const mapped = schema.anyOf.map((item) =>
 			item &&
 			typeof item === 'object' &&
-			(item as OpenAPIV3.SchemaObject).type === 'Date'
+			(item as Record<string, unknown>).type === 'Date'
 				? { type: 'string', format: 'date-time' }
 				: enumToOpenApi(item)
 		)
