@@ -74,7 +74,7 @@ describe('OpenAPI > enumToOpenAPI', () => {
 	})
 
 	it('should preserve {"type":"null"} sibling when replacing Date in a nullable date field', () => {
-		// t.Nullable(t.Date()) — after plugin processing — can appear as this flat anyOf
+		// t.Nullable(t.Date()) ï¿½ after plugin processing ï¿½ can appear as this flat anyOf
 		const schema = {
 			anyOf: [{ type: 'Date' }, { type: 'null' }]
 		}
@@ -109,5 +109,22 @@ describe('OpenAPI > enumToOpenAPI', () => {
 			type: 'string',
 			format: 'date-time'
 		})
+	})
+
+	it('should fix Date types nested in array items', () => {
+		const schema = {
+			type: 'array',
+			items: {
+				anyOf: [
+					{ type: 'Date' },
+					{ format: 'date-time', type: 'string' }
+				]
+			}
+		}
+
+		const result = enumToOpenApi(schema as any) as any
+
+		// Both entries normalise to date-time; dedup collapses anyOf to a bare schema
+		expect(result.items).toEqual({ type: 'string', format: 'date-time' })
 	})
 })
