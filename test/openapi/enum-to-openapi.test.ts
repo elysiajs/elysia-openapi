@@ -69,12 +69,13 @@ describe('OpenAPI > enumToOpenAPI', () => {
 		const result = enumToOpenApi(schema as any) as any
 
 		// The invalid Date entry is replaced; the duplicate date-time is removed
-		expect(result.anyOf).not.toContain(expect.objectContaining({ type: 'Date' }))
+		expect(result.anyOf).not.toContainEqual({ type: 'Date' })
+		expect(result.anyOf.filter((x: any) => x.type === 'string' && x.format === 'date-time')).toHaveLength(1)
 		expect(result.anyOf).toContainEqual({ type: 'string', format: 'date-time' })
 	})
 
 	it('should preserve {"type":"null"} sibling when replacing Date in a nullable date field', () => {
-		// t.Nullable(t.Date()) � after plugin processing � can appear as this flat anyOf
+		// t.Nullable(t.Date()) -- after plugin processing -- can appear as this flat anyOf
 		const schema = {
 			anyOf: [{ type: 'Date' }, { type: 'null' }]
 		}
