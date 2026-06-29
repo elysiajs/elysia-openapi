@@ -1,4 +1,4 @@
-import type { TSchema } from 'elysia'
+import type { TSchema } from 'typebox'
 import type { OpenAPIV3 } from 'openapi-types'
 import type { ApiReferenceConfiguration } from '@scalar/types'
 import type { SwaggerUIOptions } from './swagger/types'
@@ -131,7 +131,7 @@ export interface ElysiaOpenAPIConfig<
 	 *'
 	 * @see https://github.com/scalar/scalar/blob/main/documentation/configuration.md
 	 */
-	scalar?: ApiReferenceConfiguration & {
+	scalar?: Partial<ApiReferenceConfiguration> & {
 		/**
 		 * Version to use for Scalar cdn bundle
 		 *

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test'
-import { AnyElysia, Elysia, t } from 'elysia'
+import { Elysia, t } from 'elysia'
+import type { AnyElysia } from 'elysia/base'
 
 import { toOpenAPISchema } from '../../src/openapi'
 import { z } from 'zod'
@@ -41,11 +42,11 @@ describe('OpenAPI > toOpenAPISchema', () => {
 	})
 
 	it('handle params', () => {
-		const app = new Elysia().get('/user/:user', () => 'hello', {
+		const app = new Elysia().get('/user/:user', {
 			params: t.Object({
 				user: t.Number()
 			})
-		})
+		}, () => 'hello')
 
 		is(app, {
 			components: {
@@ -72,11 +73,11 @@ describe('OpenAPI > toOpenAPISchema', () => {
 	})
 
 	it('handle headers', () => {
-		const app = new Elysia().get('/user', () => 'hello', {
+		const app = new Elysia().get('/user', {
 			headers: t.Object({
 				'x-user-name': t.Literal('Lilith')
 			})
-		})
+		}, () => 'hello')
 
 		is(app, {
 			components: {
@@ -104,11 +105,11 @@ describe('OpenAPI > toOpenAPISchema', () => {
 	})
 
 	it('handle query', () => {
-		const app = new Elysia().get('/user', () => 'hello', {
+		const app = new Elysia().get('/user', {
 			query: t.Object({
 				name: t.Literal('Lilith')
 			})
-		})
+		}, () => 'hello')
 
 		is(app, {
 			components: {
@@ -136,11 +137,11 @@ describe('OpenAPI > toOpenAPISchema', () => {
 	})
 
 	it('handle cookie', () => {
-		const app = new Elysia().get('/user', () => 'hello', {
+		const app = new Elysia().get('/user', {
 			cookie: t.Object({
 				name: t.Literal('Lilith')
 			})
-		})
+		}, () => 'hello')
 
 		is(app, {
 			components: {
@@ -168,11 +169,11 @@ describe('OpenAPI > toOpenAPISchema', () => {
 	})
 
 	it('handle body', () => {
-		const app = new Elysia().post('/user', () => 'hello', {
+		const app = new Elysia().post('/user', {
 			body: t.Object({
 				name: t.Literal('Lilith')
 			})
-		})
+		}, () => 'hello')
 
 		is(app, {
 			components: {
@@ -230,15 +231,11 @@ describe('OpenAPI > toOpenAPISchema', () => {
 	})
 
 	it('handle response', () => {
-		const app = new Elysia().get(
-			'/user',
-			() => ({ name: 'Lilith' }) as const,
-			{
+		const app = new Elysia().get('/user', {
 				response: t.Object({
 					name: t.Literal('Lilith')
 				})
-			}
-		)
+			}, () => ({ name: 'Lilith' }) as const)
 
 		is(app, {
 			components: {
@@ -274,10 +271,7 @@ describe('OpenAPI > toOpenAPISchema', () => {
 	})
 
 	it('handle multiple response status', () => {
-		const app = new Elysia().get(
-			'/user',
-			() => ({ name: 'Lilith' }) as const,
-			{
+		const app = new Elysia().get('/user', {
 				response: {
 					200: t.Object({
 						name: t.Literal('Fouco')
@@ -286,8 +280,7 @@ describe('OpenAPI > toOpenAPISchema', () => {
 						name: t.Literal('Lilith')
 					})
 				}
-			}
-		)
+			}, () => ({ name: 'Lilith' }) as const)
 
 		is(app, {
 			components: {
@@ -340,10 +333,7 @@ describe('OpenAPI > toOpenAPISchema', () => {
 	})
 
 	it('handle every parameters together', () => {
-		const app = new Elysia().post(
-			'/id/:id',
-			() => ({ name: 'Lilith' }) as const,
-			{
+		const app = new Elysia().post('/id/:id', {
 				body: t.Object({
 					age: t.Number()
 				}),
@@ -367,8 +357,7 @@ describe('OpenAPI > toOpenAPISchema', () => {
 						name: t.Literal('Lilith')
 					})
 				}
-			}
-		)
+			}, () => ({ name: 'Lilith' }) as const)
 
 		is(app, {
 			components: {
@@ -495,11 +484,11 @@ describe('OpenAPI > toOpenAPISchema', () => {
 	})
 
 	it('handle params', () => {
-		const app = new Elysia().get('/user/:user', () => 'hello', {
+		const app = new Elysia().get('/user/:user', {
 			params: t.Object({
 				user: t.Number()
 			})
-		})
+		}, () => 'hello')
 
 		is(app, {
 			components: {
@@ -533,9 +522,9 @@ describe('OpenAPI > toOpenAPISchema', () => {
 			})
 		)
 
-		const app = new Elysia().use(model).get('/user/:user', () => 'hello', {
+		const app = new Elysia().use(model).get('/user/:user', {
 			headers: 'headers'
-		})
+		}, () => 'hello')
 
 		is(app, {
 			components: {
@@ -590,9 +579,9 @@ describe('OpenAPI > toOpenAPISchema', () => {
 			})
 		)
 
-		const app = new Elysia().use(model).get('/user', () => 'hello', {
+		const app = new Elysia().use(model).get('/user', {
 			query: 'query'
-		})
+		}, () => 'hello')
 
 		is(app, {
 			components: {
@@ -639,9 +628,9 @@ describe('OpenAPI > toOpenAPISchema', () => {
 			})
 		)
 
-		const app = new Elysia().use(model).get('/user', () => 'hello', {
+		const app = new Elysia().use(model).get('/user', {
 			cookie: 'cookie'
-		})
+		}, () => 'hello')
 
 		is(app, {
 			components: {
@@ -688,9 +677,9 @@ describe('OpenAPI > toOpenAPISchema', () => {
 			})
 		)
 
-		const app = new Elysia().use(model).post('/user', () => 'hello', {
+		const app = new Elysia().use(model).post('/user', {
 			body: 'body'
-		})
+		}, () => 'hello')
 
 		is(app, {
 			components: {
@@ -745,16 +734,12 @@ describe('OpenAPI > toOpenAPISchema', () => {
 			})
 		})
 
-		const app = new Elysia().use(model).post(
-			'/user',
-			() =>
+		const app = new Elysia().use(model).post('/user', {
+				response: 'lilith'
+			}, () =>
 				({
 					name: 'Lilith'
-				}) as const,
-			{
-				response: 'lilith'
-			}
-		)
+				}) as const)
 
 		is(app, {
 			components: {
@@ -804,19 +789,15 @@ describe('OpenAPI > toOpenAPISchema', () => {
 			})
 		})
 
-		const app = new Elysia().use(model).post(
-			'/user',
-			() =>
-				({
-					name: 'Lilith'
-				}) as const,
-			{
+		const app = new Elysia().use(model).post('/user', {
 				response: {
 					200: 'fouco',
 					404: 'lilith'
 				}
-			}
-		)
+			}, () =>
+				({
+					name: 'Lilith'
+				}) as const)
 
 		is(app, {
 			components: {
@@ -878,13 +859,13 @@ describe('OpenAPI > toOpenAPISchema', () => {
 	})
 
 	it('accept detail', () => {
-		const app = new Elysia().get('/user', () => 'hello', {
+		const app = new Elysia().get('/user', {
 			detail: {
 				summary: 'Get User',
 				description: 'Hello User',
 				tags: ['User']
 			}
-		})
+		}, () => 'hello')
 
 		is(app, {
 			components: {
@@ -904,11 +885,11 @@ describe('OpenAPI > toOpenAPISchema', () => {
 	})
 
 	it('use custom operationId', () => {
-		const app = new Elysia().get('/user', () => 'hello', {
+		const app = new Elysia().get('/user', {
 			detail: {
 				operationId: 'helloUser'
 			}
-		})
+		}, () => 'hello')
 
 		is(app, {
 			components: {
@@ -1065,16 +1046,16 @@ describe('OpenAPI > toOpenAPISchema', () => {
 
 	it('exclude handle body get and head', () => {
 		const app = new Elysia()
-			.get('/user', () => 'hello', {
+			.get('/user', {
 				body: t.Object({
 					name: t.Literal('Lilith')
 				})
-			})
-			.head('/user', () => 'hello', {
+			}, () => 'hello')
+			.head('/user', {
 				body: t.Object({
 					name: t.Literal('Lilith')
 				})
-			})
+			}, () => 'hello')
 
 		is(app, {
 			components: {
@@ -1105,13 +1086,7 @@ describe('OpenAPI > toOpenAPISchema', () => {
 			)
 		})
 
-		const app = new Elysia().use(model).post(
-			'/user',
-			() =>
-				({
-					name: 'Lilith'
-				}) as const,
-			{
+		const app = new Elysia().use(model).post('/user', {
 				response: {
 					200: t.Object(
 						{
@@ -1123,8 +1098,10 @@ describe('OpenAPI > toOpenAPISchema', () => {
 					),
 					404: 'lilith'
 				}
-			}
-		)
+			}, () =>
+				({
+					name: 'Lilith'
+				}) as const)
 
 		is(app, {
 			components: {
@@ -1187,9 +1164,9 @@ describe('OpenAPI > toOpenAPISchema', () => {
 	it('body should be text/plain on primitive value', () => {
 		const model = new Elysia().model('lilith', t.Literal('Lilith'))
 
-		const app = new Elysia().use(model).post('/user', () => 'hello', {
+		const app = new Elysia().use(model).post('/user', {
 			body: 'lilith'
-		})
+		}, () => 'hello')
 
 		is(app, {
 			components: {
@@ -1222,28 +1199,23 @@ describe('OpenAPI > toOpenAPISchema', () => {
 	})
 
 	it('merge multiple standard standalone schema', () => {
-		const app = new Elysia()
-			.macro('fooBar', {
+		const app = new Elysia().macro({ fooBar: {
 				query: z.object({
 					foo: z.optional(z.string())
 				}),
-				resolve({ query }) {
+				derive({ query }: { query: any }) {
 					return { test: query.foo ? 'foo' : 'bar' }
 				}
-			})
-			.get(
-				'/',
-				({ test, query }) => {
-					const { foo, bar } = query
-					return { ok: true, test, foo, bar }
-				},
-				{
+			} })
+			.get('/', {
 					query: z.object({
 						bar: z.optional(z.string())
 					}),
 					fooBar: true
-				}
-			)
+				}, ({ test, query }) => {
+					const { foo, bar } = query
+					return { ok: true, test, foo, bar }
+				})
 
 		is(app, {
 			components: {

@@ -9,17 +9,15 @@ describe('Guard Schema Flattening', () => {
 		const app = new Elysia()
 			.use(openapi())
 			.guard(
-				{
-					headers: t.Object({
+				{ schema: 'standalone', headers: t.Object({
 						authorization: t.String()
-					})
-				},
+					}) },
 				(app) =>
-					app.post('/users', ({ body }) => body, {
+					app.post('/users', {
 						body: t.Object({
 							name: t.String()
 						})
-					})
+					}, ({ body }) => body)
 			)
 
 		await app.modules
@@ -55,18 +53,16 @@ describe('Guard Schema Flattening', () => {
 				})
 			})
 			.guard(
-				{
-					response: {
+				{ schema: 'standalone', response: {
 						401: 'ErrorResponse',
 						500: 'ErrorResponse'
-					}
-				},
+					} },
 				(app) =>
-					app.get('/data', () => ({ value: 'test' }), {
+					app.get('/data', {
 						response: t.Object({
 							value: t.String()
 						})
-					})
+					}, () => ({ value: 'test' }))
 			)
 
 		await app.modules

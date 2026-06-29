@@ -1,4 +1,5 @@
 import { Elysia } from 'elysia'
+import type { AnyElysia } from 'elysia/base'
 
 import { SwaggerUIRender } from './swagger'
 import { ScalarRender } from './scalar'
@@ -99,10 +100,10 @@ export const openapi = <
 		})
 	}
 
-	const app = new Elysia({ name: '@elysiajs/openapi' })
+	return (host: AnyElysia) => {
+		const plugin = new Elysia({ name: '@elysiajs/openapi' })
 
-	app.use((app) => {
-		if (provider === null) return app
+		if (provider === null) return host.use(plugin)
 
 		const page = () =>
 			new Response(
@@ -125,11 +126,11 @@ export const openapi = <
 							},
 							embedSpec
 								? JSON.stringify(
-										totalRoutes === app.routes.length
+										totalRoutes === host.routes.length
 											? cachedSchema
 											: toFullSchema(
 													toOpenAPISchema(
-														app,
+														host,
 														exclude,
 														references,
 														mapJsonSchema
@@ -145,39 +146,41 @@ export const openapi = <
 				}
 			)
 
-		return app.get(
-			path,
-			embedSpec || isCloudflareWorker() ? page : page(),
-			{
-				detail: {
-					hide: true
-				}
-			}
-		)
-	}).get(
-		specPath,
-		function openAPISchema(): OpenAPIV3.Document {
-			if (totalRoutes === app.routes.length && cachedSchema)
-				return cachedSchema
-
-			totalRoutes = app.routes.length
-
-			return toFullSchema(
-				toOpenAPISchema(app, exclude, references, mapJsonSchema)
+		plugin
+			.get(
+				path,
+				{
+					detail: {
+						hide: true
+					}
+				},
+				embedSpec || isCloudflareWorker() ? page : page()
 			)
-		},
-		{
-			error({ error }) {
-				console.log('[@elysiajs/openapi] error at specPath')
-				console.warn(error)
-			},
-			detail: {
-				hide: true
-			}
-		}
-	)
+			.get(
+				specPath,
+				{
+					error({ error }) {
+						console.log('[@elysia/openapi] error at specPath')
+						console.warn(error)
+					},
+					detail: {
+						hide: true
+					}
+				},
+				function openAPISchema(): OpenAPIV3.Document {
+					if (totalRoutes === host.routes.length && cachedSchema)
+						return cachedSchema
 
-	return app
+					totalRoutes = host.routes.length
+
+					return toFullSchema(
+						toOpenAPISchema(host, exclude, references, mapJsonSchema)
+					)
+				}
+			)
+
+		return host.use(plugin)
+	}
 }
 
 export { fromTypes } from './gen'

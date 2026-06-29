@@ -407,7 +407,6 @@ describe('Gen > Type Gen', () => {
 											type: 'string'
 										}
 									],
-									maxItems: 2,
 									minItems: 2,
 									type: 'array'
 								},
@@ -429,223 +428,290 @@ describe('Gen > Type Gen', () => {
 		const reference = fromTypes('test/gen/sample.ts')()
 
 		expect(serializable(reference)!).toEqual({
-			'/': {
-				derive: {},
-				get: {
-					body: {},
-					headers: {},
-					params: {
-						properties: {},
-						type: 'object'
+			"/const": {
+				"get": {
+					"body": {},
+					"params": {
+						"type": "object",
+						"properties": {}
 					},
-					query: {},
-					response: {
-						'204': {},
-						'422': {
-							properties: {
-								expected: {
-									type: 'string'
+					"query": {},
+					"headers": {},
+					"response": {
+						"200": {
+							"type": "object",
+							"properties": {
+								"name": {
+									"const": "Lilith",
+									"type": "string"
 								},
-								found: {},
-								message: {
-									type: 'string'
-								},
-								on: {
-									type: 'string'
-								},
-								property: {
-									type: 'string'
-								},
-								summary: {
-									type: 'string'
-								},
-								type: {
-									const: 'validation',
-									type: 'string'
-								}
-							},
-							required: ['type', 'on'],
-							type: 'object'
-						}
-					}
-				},
-				resolve: {},
-				response: {},
-				schema: {},
-				standaloneschema: {}
-			},
-			'/character': {
-				post: {
-					body: {
-						type: 'string'
-					},
-					headers: {},
-					params: {
-						properties: {},
-						type: 'object'
-					},
-					query: {},
-					response: {
-						'200': {
-							properties: {
-								name: {
-									const: 'Lilith',
-									type: 'string'
-								}
-							},
-							required: ['name'],
-							type: 'object'
-						},
-						'422': {
-							properties: {
-								expected: {
-									type: 'string'
-								},
-								found: {},
-								message: {
-									type: 'string'
-								},
-								on: {
-									type: 'string'
-								},
-								property: {
-									type: 'string'
-								},
-								summary: {
-									type: 'string'
-								},
-								type: {
-									const: 'validation',
-									type: 'string'
-								}
-							},
-							required: ['type', 'on'],
-							type: 'object'
-						}
-					}
-				}
-			},
-			'/const': {
-				get: {
-					body: {},
-					headers: {},
-					params: {
-						properties: {},
-						type: 'object'
-					},
-					query: {},
-					response: {
-						'200': {
-							properties: {
-								friends: {
-									additionalItems: false,
-									items: [
+								"friends": {
+									"type": "array",
+									"items": [
 										{
-											const: 'Sartre',
-											type: 'string'
+											"const": "Sartre",
+											"type": "string"
 										},
 										{
-											const: 'Fouco',
-											type: 'string'
+											"const": "Fouco",
+											"type": "string"
 										}
 									],
-									maxItems: 2,
-									minItems: 2,
-									type: 'array'
-								},
-								name: {
-									const: 'Lilith',
-									type: 'string'
+									"additionalItems": false,
+									"minItems": 2
 								}
 							},
-							required: ['name', 'friends'],
-							type: 'object'
+							"required": [
+								"name",
+								"friends"
+							]
 						}
 					}
 				}
 			},
-			'/json': {
-				post: {
-					body: {
-						properties: {
-							hello: {
-								type: 'string'
+			"/": {
+				"get": {
+					"body": {},
+					"params": {
+						"type": "object",
+						"properties": {}
+					},
+					"query": {},
+					"headers": {},
+					"response": {
+						"204": {
+							"type": "void"
+						},
+						"422": {
+							"type": "object",
+							"properties": {
+								"type": {
+									"const": "validation",
+									"type": "string"
+								},
+								"on": {
+									"type": "string"
+								},
+								"message": {
+									"type": "string"
+								},
+								"found": {},
+								"property": {
+									"type": "string"
+								},
+								"expected": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"type",
+								"on"
+							]
+						}
+					}
+				}
+			},
+			"/json": {
+				"post": {
+					"body": {
+						"type": "object",
+						"properties": {
+							"hello": {
+								"type": "string"
 							}
 						},
-						required: ['hello'],
-						type: 'object'
+						"required": [
+							"hello"
+						]
 					},
-					headers: {},
-					params: {
-						properties: {},
-						type: 'object'
+					"params": {
+						"type": "object",
+						"properties": {}
 					},
-					query: {},
-					response: {
-						'200': {
-							properties: {
-								hello: {
-									type: 'string'
+					"query": {},
+					"headers": {},
+					"response": {
+						"200": {
+							"type": "object",
+							"properties": {
+								"hello": {
+									"type": "string"
 								}
 							},
-							required: ['hello'],
-							type: 'object'
+							"required": [
+								"hello"
+							]
 						},
-						'418': {
-							const: "I'm a teapot",
-							type: 'string'
+						"418": {
+							"const": "I'm a teapot",
+							"type": "string"
 						},
-						'422': {
-							properties: {
-								expected: {
-									type: 'string'
+						"422": {
+							"type": "object",
+							"properties": {
+								"type": {
+									"const": "validation",
+									"type": "string"
 								},
-								found: {},
-								message: {
-									type: 'string'
+								"on": {
+									"type": "string"
 								},
-								on: {
-									type: 'string'
+								"message": {
+									"type": "string"
 								},
-								property: {
-									type: 'string'
+								"found": {},
+								"property": {
+									"type": "string"
 								},
-								summary: {
-									type: 'string'
-								},
-								type: {
-									const: 'validation',
-									type: 'string'
+								"expected": {
+									"type": "string"
 								}
 							},
-							required: ['type', 'on'],
-							type: 'object'
+							"required": [
+								"type",
+								"on"
+							]
 						}
 					}
 				}
 			},
-			'/no-manual': {
-				get: {
-					body: {},
-					headers: {},
-					params: {
-						properties: {},
-						type: 'object'
+			"/character": {
+				"post": {
+					"body": {
+						"type": "string"
 					},
-					query: {},
-					response: {
-						'200': {
-							properties: {
-								name: {
-									type: 'string'
+					"params": {
+						"type": "object",
+						"properties": {}
+					},
+					"query": {},
+					"headers": {},
+					"response": {
+						"200": {
+							"type": "object",
+							"properties": {
+								"name": {
+									"const": "Lilith",
+									"type": "string"
 								}
 							},
-							required: ['name'],
-							type: 'object'
+							"required": [
+								"name"
+							]
+						},
+						"422": {
+							"type": "object",
+							"properties": {
+								"type": {
+									"const": "validation",
+									"type": "string"
+								},
+								"on": {
+									"type": "string"
+								},
+								"message": {
+									"type": "string"
+								},
+								"found": {},
+								"property": {
+									"type": "string"
+								},
+								"expected": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"type",
+								"on"
+							]
+						}
+					}
+				}
+			},
+			"/no-manual": {
+				"get": {
+					"body": {},
+					"params": {
+						"type": "object",
+						"properties": {}
+					},
+					"query": {},
+					"headers": {},
+					"response": {
+						"200": {
+							"type": "object",
+							"properties": {
+								"name": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"name"
+							]
 						}
 					}
 				}
 			}
 		})
+	})
+
+	it('resolves named type and interface return types', () => {
+		const reference = serializable(fromTypes('test/gen/named-types.ts')())!
+
+		const resp = (path: string, method: string) =>
+			(reference as any)[path][method].response['200']
+
+		const user = {
+			type: 'object',
+			properties: {
+				id: { type: 'string' },
+				name: { type: 'string' },
+				profile: {
+					type: 'object',
+					properties: {
+						bio: { type: 'string' },
+						age: { type: 'number' }
+					},
+					required: ['bio', 'age']
+				}
+			},
+			required: ['id', 'name', 'profile']
+		}
+
+		// a named `type` alias resolves to its shape (incl. the nested named
+		// `Profile`) instead of a dangling `{ $ref: 'User' }`
+		expect(resp('/named', 'post')).toEqual(user)
+		// the last route in the chain (trailing AddRoute generic) resolves too
+		expect(resp('/trailing', 'get')).toEqual(user)
+		// array of a named type
+		expect(resp('/array', 'get')).toEqual({ type: 'array', items: user })
+		// `interface` (with a nested named type) resolves
+		expect(resp('/interface', 'get')).toEqual({
+			type: 'object',
+			properties: { owner: user, active: { type: 'boolean' } },
+			required: ['owner', 'active']
+		})
+		// inline object literals and primitives keep working
+		expect(resp('/inline', 'get')).toEqual({
+			type: 'object',
+			properties: { a: { type: 'string' }, b: { type: 'number' } },
+			required: ['a', 'b']
+		})
+		expect(resp('/primitive', 'get')).toEqual({ type: 'string' })
+
+		// an imported generic type (SSEPayload from elysia) the declaration
+		// parser can't see is resolved via the TypeScript checker, with default
+		// type arguments
+		const sse = resp('/imported', 'get')
+		expect(sse.type).toBe('object')
+		expect(Object.keys(sse.properties).sort()).toEqual([
+			'data',
+			'event',
+			'id',
+			'retry'
+		])
+
+		// nothing should be left as an unresolved type reference
+		expect(JSON.stringify(reference)).not.toContain('"$ref"')
 	})
 })

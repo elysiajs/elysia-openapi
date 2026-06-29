@@ -146,13 +146,13 @@ describe('Swagger', () => {
 	})
 
 	it('should not return content response when using Void type', async () => {
-		const app = new Elysia().use(openapi()).get('/void', () => {}, {
+		const app = new Elysia().use(openapi()).get('/void', {
 			response: {
 				204: t.Void({
 					description: 'Void response'
 				})
 			}
-		})
+		}, () => {})
 
 		await app.modules
 
@@ -171,13 +171,13 @@ describe('Swagger', () => {
 	it('should not return content response when using Undefined type', async () => {
 		const app = new Elysia()
 			.use(openapi())
-			.get('/undefined', () => undefined, {
+			.get('/undefined', {
 				response: {
 					204: t.Undefined({
 						description: 'Undefined response'
 					})
 				}
-			})
+			}, () => undefined)
 
 		await app.modules
 
@@ -196,13 +196,13 @@ describe('Swagger', () => {
 	})
 
 	it('should not return content response when using Null type', async () => {
-		const app = new Elysia().use(openapi()).get('/null', () => null, {
+		const app = new Elysia().use(openapi()).get('/null', {
 			response: {
 				204: t.Null({
 					description: 'Null response'
 				})
 			}
-		})
+		}, () => null)
 
 		await app.modules
 
@@ -219,9 +219,9 @@ describe('Swagger', () => {
 	})
 
 	it('should set the required field to true when a request body is present', async () => {
-		const app = new Elysia().use(openapi()).post('/post', () => {}, {
+		const app = new Elysia().use(openapi()).post('/post', {
 			body: t.Object({ name: t.String() })
-		})
+		}, () => {})
 
 		await app.modules
 

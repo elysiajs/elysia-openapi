@@ -17,13 +17,7 @@ export const app = new Elysia()
 				friends: ['Sartre', 'Fouco']
 			}) as const
 	)
-	.get(
-		'/',
-		() =>
-			({ test: 'hello' as const }) as any as
-				| { test: 'hello' }
-				| undefined,
-		{
+	.get('/', {
 			response: {
 				204: withHeaders(
 					t.Void({
@@ -35,26 +29,20 @@ export const app = new Elysia()
 					}
 				)
 			}
-		}
-	)
-	.post(
-		'/json',
-		({ body, status }) => (Math.random() > 0.5 ? status(418) : body),
-		{
+		}, () =>
+			({ test: 'hello' as const }) as any as
+				| { test: 'hello' }
+				| undefined)
+	.post('/json', {
 			body: t.Object({
 				hello: t.String()
 			})
-		}
-	)
-	.post(
-		'/character',
-		() => ({
-			name: 'Lilith' as const
-		}),
-		{
+		}, ({ body, status }) => (Math.random() > 0.5 ? status(418) : body))
+	.post('/character', {
 			body: 'character.name'
-		}
-	)
+		}, () => ({
+			name: 'Lilith' as const
+		}))
 	.get('/no-manual', () => ({
 		name: 'lilith'
 	}))

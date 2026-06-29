@@ -10,31 +10,18 @@ const req = (path: string) => new Request(`http://localhost${path}`)
 it('returns a valid Swagger/OpenAPI json config for many routes', async () => {
 	const app = new Elysia()
 		.use(openapi())
-		.get('/', () => 'hi', {
+		.get('/', {
 			response: t.String({ description: 'sample description' })
-		})
-		.get('/unpath/:id', ({ params: { id } }) => id, {
+		}, () => 'hi')
+		.get('/unpath/:id', {
 			response: t.String({ description: 'sample description' })
-		})
-		.get(
-			'/unpath/:id/:name/:age',
-			({ params: { id, name } }) => `${id} ${name}`,
-			{
+		}, ({ params: { id } }) => id)
+		.get('/unpath/:id/:name/:age', {
 				type: 'json',
 				response: t.String({ description: 'sample description' }),
 				params: t.Object({ id: t.String(), name: t.String() })
-			}
-		)
-		.post(
-			'/json/:id',
-			({ body, params: { id }, query: { name, email, birthday } }) => ({
-				...body,
-				id,
-				name,
-				email,
-				birthday
-			}),
-			{
+			}, ({ params: { id, name } }) => `${id} ${name}`)
+		.post('/json/:id', {
 				params: t.Object({
 					id: t.String()
 				}),
@@ -74,8 +61,13 @@ it('returns a valid Swagger/OpenAPI json config for many routes', async () => {
 					},
 					{ description: 'sample description 3' }
 				)
-			}
-		)
+			}, ({ body, params: { id }, query: { name, email, birthday } }) => ({
+				...body,
+				id,
+				name,
+				email,
+				birthday
+			}))
 
 	await app.modules
 

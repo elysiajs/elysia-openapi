@@ -61,14 +61,14 @@ describe('OpenAPI > references', () => {
 	})
 
 	it('prefers schema over definition', () => {
-		const app = new Elysia().get('/', () => ({ name: 'fouco' }) as const, {
+		const app = new Elysia().get('/', {
 			query: t.Object({
 				id: t.Number()
 			}),
 			response: t.Object({
 				name: t.Literal('fouco')
 			})
-		})
+		}, () => ({ name: 'fouco' }) as const)
 
 		const schema = toOpenAPISchema(app, undefined, {
 			'/': {

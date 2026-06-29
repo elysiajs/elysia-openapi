@@ -1,4 +1,4 @@
-import { TypeBox } from '@sinclair/typemap'
+import { Script } from 'typebox/type'
 import type { AdditionalReference } from '../types'
 
 const matchRoute = /: Elysia<(.*)>/gs
@@ -116,13 +116,13 @@ export function extractRootObjects(code: string) {
 }
 
 export function declarationToJSONSchema(declaration: string) {
-	const routes: AdditionalReference = {}
+	const routes: AdditionalReference = Object.create(null)
 
 	// Treaty is a collection of { ... } & { ... } & { ... }
 	for (const route of extractRootObjects(
 		declaration.replace(numberKey, '"$1":')
 	)) {
-		let schema = TypeBox(route.replaceAll(/readonly/g, ''))
+		let schema = Script(route.replaceAll(/readonly/g, '')) as any
 		if (schema.type !== 'object') continue
 
 		const paths = []
@@ -144,8 +144,10 @@ export function declarationToJSONSchema(declaration: string) {
 		const path = '/' + paths.join('/')
 		schema = schema.properties
 
+		if (schema) delete (schema as any).error
+
 		if (schema?.response?.type === 'object') {
-			const responseSchema: Record<string, any> = {}
+			const responseSchema: Record<string, any> = Object.create(null)
 
 			for (const key in schema.response.properties)
 				responseSchema[key] = schema.response.properties[key]
@@ -153,7 +155,7 @@ export function declarationToJSONSchema(declaration: string) {
 			schema.response = responseSchema
 		}
 
-		if (!routes[path]) routes[path] = {}
+		if (!routes[path]) routes[path] = Object.create(null)
 		// @ts-ignore
 		routes[path][method.toLowerCase()] = schema
 	}
@@ -161,12 +163,389 @@ export function declarationToJSONSchema(declaration: string) {
 	return routes
 }
 
+const isClosing = (char: string, prev: string) =>
+	'>})]'.includes(char) && !(char === '>' && prev === '=')
+
+function extractGenericBody(source: string, name: string) {
+	const start = source.indexOf(name + '<')
+	if (start === -1) return null
+
+	let depth = 1
+	let inString: string | null = null
+	const bodyStart = start + name.length + 1
+
+	for (let i = bodyStart; i < source.length; i++) {
+		const char = source[i]
+
+		if (inString) {
+			if (char === inString) inString = null
+			continue
+		}
+
+		if (char === '"' || char === "'" || char === '`') inString = char
+		else if ('<{(['.includes(char)) depth++
+		else if (isClosing(char, source[i - 1])) {
+			depth--
+			if (depth === 0) return source.slice(bodyStart, i)
+		}
+	}
+
+	return null
+}
+
+function splitGenerics(inner: string) {
+	const args: string[] = []
+	let depth = 0
+	let start = 0
+	let inString: string | null = null
+
+	for (let i = 0; i < inner.length; i++) {
+		const char = inner[i]
+
+		if (inString) {
+			if (char === inString) inString = null
+			continue
+		}
+
+		if (char === '"' || char === "'" || char === '`') inString = char
+		else if ('<{(['.includes(char)) depth++
+		else if (isClosing(char, inner[i - 1])) depth--
+		else if (char === ',' && depth === 0) {
+			args.push(inner.slice(start, i).trim())
+			start = i + 1
+		}
+	}
+
+	args.push(inner.slice(start).trim())
+
+	return args
+}
+
+/**
+ * Collect top-level `type X = ...` aliases and `interface X ...` declarations
+ * from a `.d.ts` into a name -> type-string map.
+ */
+export function extractTypeContext(declaration: string) {
+	const context: Record<string, string> = Object.create(null)
+
+	// type X = <definition>;
+	const typeRe = /\btype\s+([A-Za-z_$][\w$]*)\s*=\s*/g
+	let match: RegExpExecArray | null
+	while ((match = typeRe.exec(declaration))) {
+		let depth = 0
+		let inString: string | null = null
+		let i = typeRe.lastIndex
+		const start = i
+
+		for (; i < declaration.length; i++) {
+			const char = declaration[i]
+			if (inString) {
+				if (char === inString) inString = null
+				continue
+			}
+			if (char === '"' || char === "'" || char === '`') inString = char
+			else if ('<{(['.includes(char)) depth++
+			else if (isClosing(char, declaration[i - 1])) depth--
+			else if (char === ';' && depth === 0) break
+		}
+
+		context[match[1]] = declaration.slice(start, i).trim()
+		typeRe.lastIndex = i
+	}
+
+	// interface X [extends A, B] { <body> }  ->  A & B & { <body> }
+	const interfaceRe = /\binterface\s+([A-Za-z_$][\w$]*)\s*([^{]*)\{/g
+	while ((match = interfaceRe.exec(declaration))) {
+		let depth = 1
+		let inString: string | null = null
+		let i = interfaceRe.lastIndex
+		const start = i
+
+		for (; i < declaration.length; i++) {
+			const char = declaration[i]
+			if (inString) {
+				if (char === inString) inString = null
+				continue
+			}
+			if (char === '"' || char === "'" || char === '`') inString = char
+			else if ('<{(['.includes(char)) depth++
+			else if (isClosing(char, declaration[i - 1])) {
+				depth--
+				if (depth === 0) break
+			}
+		}
+
+		const body = '{' + declaration.slice(start, i) + '}'
+		const bases = (match[2].match(/extends\s+([^{]+)/)?.[1] ?? '')
+			.split(',')
+			.map((base) => base.trim())
+			.filter(Boolean)
+
+		context[match[1]] = [...bases, body].join(' & ')
+		interfaceRe.lastIndex = i + 1
+	}
+
+	return context
+}
+
+export function resolveTypeRefs(
+	schema: any,
+	context: Record<string, any>,
+	chain: Set<string> = new Set()
+): any {
+	if (Array.isArray(schema))
+		return schema.map((item) => resolveTypeRefs(item, context, chain))
+
+	if (!schema || typeof schema !== 'object') return schema
+
+	if (
+		typeof schema.$ref === 'string' &&
+		context[schema.$ref] &&
+		!chain.has(schema.$ref)
+	) {
+		// context holds already-parsed schemas; clone and recurse to resolve
+		// any nested references it still contains
+		const resolved = JSON.parse(JSON.stringify(context[schema.$ref]))
+
+		return resolveTypeRefs(
+			resolved,
+			context,
+			new Set(chain).add(schema.$ref)
+		)
+	}
+
+	const out: Record<string, unknown> = Object.create(null)
+	for (const key in schema)
+		out[key] = resolveTypeRefs(schema[key], context, chain)
+
+	return out
+}
+
+function collectRefs(schema: any, into = new Set<string>()) {
+	if (Array.isArray(schema)) schema.forEach((item) => collectRefs(item, into))
+	else if (schema && typeof schema === 'object') {
+		if (typeof schema.$ref === 'string') into.add(schema.$ref)
+		for (const key in schema) collectRefs(schema[key], into)
+	}
+
+	return into
+}
+
+function substituteRefs(schema: any, map: Record<string, any>): any {
+	if (Array.isArray(schema))
+		return schema.map((item) => substituteRefs(item, map))
+
+	if (!schema || typeof schema !== 'object') return schema
+	if (typeof schema.$ref === 'string' && map[schema.$ref])
+		return map[schema.$ref]
+
+	const out: any = Object.create(null)
+	for (const key in schema) out[key] = substituteRefs(schema[key], map)
+
+	return out
+}
+
+function stripUndefined(schema: any): any {
+	if (Array.isArray(schema)) return schema.map(stripUndefined)
+	if (!schema || typeof schema !== 'object') return schema
+
+	const out: any = Object.create(null)
+	for (const key in schema) out[key] = stripUndefined(schema[key])
+
+	if (Array.isArray(out.anyOf)) {
+		const variants = out.anyOf.filter((v: any) => v?.type !== 'undefined')
+		if (variants.length === 1) {
+			const { anyOf, ...rest } = out
+			return { ...rest, ...variants[0] }
+		}
+
+		out.anyOf = variants
+	}
+
+	return out
+}
+
+function resolveExternalRefs(
+	reference: AdditionalReference | undefined,
+	sourceFile: string,
+	tsconfigPath: string,
+	projectRoot: string
+): AdditionalReference | undefined {
+	if (!reference) return reference
+
+	const refs = [...collectRefs(reference)]
+	if (!refs.length) return reference
+
+	let ts: typeof import('typescript') | undefined
+	try {
+		const createRequire =
+			process.getBuiltinModule?.('module')?.createRequire
+		ts = createRequire?.(join(projectRoot, 'index.js'))?.('typescript')
+	} catch {
+		// typescript not importable
+	}
+	if (!ts) return reference
+
+	try {
+		const config = ts.sys.fileExists(tsconfigPath)
+			? ts.readConfigFile(tsconfigPath, ts.sys.readFile).config
+			: {}
+		const parsed = ts.parseJsonConfigFileContent(
+			config,
+			ts.sys,
+			projectRoot
+		)
+
+		const program = ts.createProgram([sourceFile], {
+			...parsed.options,
+			noEmit: true,
+			skipLibCheck: true
+		})
+		const checker = program.getTypeChecker()
+		const sf = program.getSourceFile(sourceFile)
+		if (!sf) return reference
+
+		const FLAGS =
+			ts.TypeFormatFlags.NoTruncation |
+			ts.TypeFormatFlags.UseStructuralFallback |
+			ts.TypeFormatFlags.InTypeAlias
+
+		const inScope = checker.getSymbolsInScope(
+			sf,
+			ts.SymbolFlags.Type | ts.SymbolFlags.Alias
+		)
+
+		const map: Record<string, any> = Object.create(null)
+		for (const name of refs) {
+			let symbol = inScope.find((s) => s.getName() === name)
+			if (!symbol) continue
+			if (symbol.getFlags() & ts.SymbolFlags.Alias)
+				symbol = checker.getAliasedSymbol(symbol)
+
+			const declared = checker.getDeclaredTypeOfSymbol(symbol)
+			const typeString = checker.typeToString(declared, undefined, FLAGS)
+
+			// generic type aliases keep their parameter names; resolve those to
+			// the parameter defaults (Script's module form substitutes them)
+			const context: Record<string, any> = Object.create(null)
+			for (const declaration of symbol.getDeclarations() ?? [])
+				for (const parameter of (declaration as any).typeParameters ??
+					[])
+					if (parameter.default)
+						try {
+							context[parameter.name.text] = Script(
+								checker.typeToString(
+									checker.getTypeFromTypeNode(
+										parameter.default
+									),
+									undefined,
+									FLAGS
+								)
+							)
+						} catch {}
+
+			try {
+				map[name] = stripUndefined(
+					JSON.parse(JSON.stringify(Script(context, typeString)))
+				)
+			} catch {}
+		}
+
+		return substituteRefs(reference, map)
+	} catch (error) {
+		console.warn(
+			'[@elysia/openapi/gen] Failed to resolve external types',
+			error
+		)
+
+		return reference
+	}
+}
+
+export function declarationToReference(
+	declaration: string,
+	instanceName?: string
+): AdditionalReference | undefined {
+	let scope = declaration
+	if (instanceName) {
+		const at = declaration.indexOf(`${instanceName}:`)
+		if (at !== -1) scope = declaration.slice(at)
+	}
+
+	// Parse each type alias/interface into a schema so refs can be resolved
+	const context: Record<string, any> = Object.create(null)
+	for (const [name, type] of Object.entries(
+		extractTypeContext(declaration)
+	))
+		try {
+			context[name] = Script(type)
+		} catch {
+			// skip definitions Script can't parse; they stay as `$ref`
+		}
+
+	const addRouteBody = extractGenericBody(scope, 'AddRoute')
+	if (addRouteBody) {
+		const generics = splitGenerics(addRouteBody)
+		const routes = generics[5] ? declarationToJSONSchema(generics[5]) : {}
+
+		// The last `.get()/.post()` in the chain isn't folded into the routes
+		// map yet; reconstruct it from the trailing method/path/handler generics
+		const method = generics[8]?.replace(/['"]/g, '').toLowerCase()
+		const path = generics[9]?.replace(/['"]/g, '')
+		const handler = generics[12] ?? ''
+
+		if (method && path && !routes[path]) {
+			const route: Record<string, unknown> = {
+				body: {},
+				params: { type: 'object', properties: {} },
+				query: {},
+				headers: {},
+				response: {}
+			}
+
+			const arrow = handler.indexOf('=>')
+			if (arrow !== -1) {
+				const returnType = handler
+					.slice(arrow + 2)
+					.trim()
+					.replace(/readonly/g, '')
+
+				try {
+					const schema = Script(returnType)
+					if (schema) route.response = { 200: schema }
+				} catch {
+					// best effort: leave response empty if the return type
+					// can't be parsed (unions, Promise<...>, status(), ...)
+				}
+			}
+
+			// @ts-ignore
+			routes[path] = { [method]: route }
+		}
+
+		return resolveTypeRefs(routes, context)
+	}
+
+	// Elysia 1.x fallback: `Elysia<'', {}, {}, {}, Routes>`
+	let instance = scope.match(
+		instanceName
+			? new RegExp(`${instanceName}: Elysia<(.*)`, 'gs')
+			: matchRoute
+	)?.[0]
+
+	if (!instance) return
+
+	// skip the leading generics to reach the routes map
+	for (let i = 0; i < 3; i++)
+		instance = instance.slice(instance.indexOf('}, {', 3))
+
+	return resolveTypeRefs(declarationToJSONSchema(instance.slice(2)), context)
+}
+
 /**
  * Auto generate OpenAPI schema from Elysia instance
  *
  * It's expected that this command should run in project root
- *
- * @experimental use at your own risk
  */
 export const fromTypes =
 	(
@@ -186,7 +565,7 @@ export const fromTypes =
 			compilerOptions,
 			tmpRoot,
 			silent = false
-		}: OpenAPIGeneratorOptions = {}
+		}: OpenAPIGeneratorOptions = Object.create(null)
 	) =>
 	() => {
 		// targetFilePath is an actual TypeScript declaration
@@ -201,13 +580,13 @@ export const fromTypes =
 			typeof process.getBuiltinModule !== 'function'
 		)
 			throw new Error(
-				'[@elysiajs/openapi/gen] `fromTypes` from file path is only available in Node.js/Bun environment or environments'
+				'[@elysia/openapi/gen] `fromTypes` from file path is only available in Node.js/Bun environment or environments'
 			)
 
 		const fs = process.getBuiltinModule('fs')
 		if (!fs)
 			throw new Error(
-				'[@elysiajs/openapi/gen] `fromTypes` require `fs` module which is not available in this environment'
+				'[@elysia/openapi/gen] `fromTypes` require `fs` module which is not available in this environment'
 			)
 
 		try {
@@ -260,6 +639,10 @@ export const fromTypes =
 					: ''
 
 				let distDir = join(tmpRoot, 'dist')
+				// Explicit rootDir: TypeScript 6.0+ no longer infers it when
+				// emitting declarations with an outDir, and errors instead of
+				// emitting. projectRoot contains the target file and its imports.
+				let rootDir = projectRoot
 
 				// Convert Windows path to Unix for TypeScript CLI
 				if (
@@ -269,6 +652,7 @@ export const fromTypes =
 					extendsRef = extendsRef.replace(/\\/g, '/')
 					src = src.replace(/\\/g, '/')
 					distDir = distDir.replace(/\\/g, '/')
+					rootDir = rootDir.replace(/\\/g, '/')
 				}
 
 				fs.writeFileSync(
@@ -287,6 +671,7 @@ export const fromTypes =
 	"moduleResolution": "bundler",
 	"skipLibCheck": true,
 	"skipDefaultLibCheck": true,
+	"rootDir": "${rootDir}",
 	"outDir": "${distDir}"
 }`
 	},
@@ -297,12 +682,12 @@ export const fromTypes =
 				const child_process = process.getBuiltinModule('child_process')
 				if (!child_process)
 					throw new Error(
-						'[@elysiajs/openapi/gen] `fromTypes` declaration generation require `child_process` module which is not available in this environment'
+						'[@elysia/openapi/gen] `fromTypes` declaration generation require `child_process` module which is not available in this environment'
 					)
 				const { spawnSync } = child_process
 				if (typeof spawnSync !== 'function')
 					throw new Error(
-						'[@elysiajs/openapi/gen] `fromTypes` declaration generation require child_process.spawnSync which is not available in this environment'
+						'[@elysia/openapi/gen] `fromTypes` declaration generation require child_process.spawnSync which is not available in this environment'
 					)
 
 				spawnSync(`tsc`, {
@@ -347,7 +732,7 @@ export const fromTypes =
 					fs.rmSync(join(tmpRoot, 'tsconfig.json'))
 
 					console.warn(
-						'[@elysiajs/openapi/gen] Failed to generate OpenAPI schema'
+						'[@elysia/openapi/gen] Failed to generate OpenAPI schema'
 					)
 					console.warn("Couldn't find generated declaration file")
 
@@ -383,32 +768,21 @@ export const fromTypes =
 			if (!debug && fs.existsSync(tmpRoot))
 				fs.rmSync(tmpRoot, { recursive: true, force: true })
 
-			let instance = declaration.match(
-				instanceName
-					? new RegExp(`${instanceName}: Elysia<(.*)`, 'gs')
-					: matchRoute
-			)?.[0]
+			const reference = declarationToReference(declaration, instanceName)
 
-			if (!instance) return
-
-			// Get 5th generic parameter
-			// Elysia<'', {}, {}, {}, Routes>
-			// ------------------------^
-			//         1   2   3   4   5
-			// We want the 4th one
-			for (let i = 0; i < 3; i++)
-				instance = instance.slice(
-					instance.indexOf(
-						'}, {',
-						// remove just `}, `, leaving `{`
-						3
-					)
-				)
-
-			return declarationToJSONSchema(instance.slice(2))
+			// Resolve any `$ref` the parser couldn't (imported/generic types)
+			// via the TypeScript checker
+			return resolveExternalRefs(
+				reference,
+				src,
+				tsconfigPath.startsWith('/')
+					? tsconfigPath
+					: join(projectRoot, tsconfigPath),
+				projectRoot
+			)
 		} catch (error) {
 			console.warn(
-				'[@elysiajs/openapi/gen] Failed to generate OpenAPI schema'
+				'[@elysia/openapi/gen] Failed to generate OpenAPI schema'
 			)
 			console.warn(error)
 

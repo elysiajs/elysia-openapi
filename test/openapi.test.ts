@@ -1,12 +1,10 @@
 import { describe, it, expect } from 'bun:test'
-import { Kind } from '@sinclair/typebox'
 
 import { enumToOpenApi } from '../src/openapi'
 
 describe('convertEnumToOpenApi', () => {
 	it('should convert enum schema to OpenAPI enum format', () => {
 		const expectedSchema = {
-			[Kind]: 'Union',
 			anyOf: [{ const: 'male' }, { const: 'female' }]
 		}
 
@@ -24,7 +22,6 @@ describe('convertEnumToOpenApi', () => {
 			properties: {
 				name: { type: 'string' },
 				gender: {
-					[Kind]: 'Union',
 					anyOf: [{ const: 'male' }, { const: 'female' }]
 				}
 			}
