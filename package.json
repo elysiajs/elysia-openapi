@@ -7,7 +7,7 @@
 		"url": "https://github.com/SaltyAom",
 		"email": "saltyaom@gmail.com"
 	},
-	"main": "./dist/cjs/index.js",
+	"main": "./dist/index.js",
 	"module": "./dist/index.mjs",
 	"types": "./dist/index.d.ts",
 	"exports": {
@@ -15,42 +15,42 @@
 		".": {
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.mjs",
-			"require": "./dist/cjs/index.js"
+			"require": "./dist/index.js"
 		},
 		"./gen": {
 			"types": "./dist/gen/index.d.ts",
 			"import": "./dist/gen/index.mjs",
-			"require": "./dist/cjs/gen/index.js"
+			"require": "./dist/gen/index.js"
 		},
 		"./openapi": {
 			"types": "./dist/openapi.d.ts",
 			"import": "./dist/openapi.mjs",
-			"require": "./dist/cjs/openapi.js"
+			"require": "./dist/openapi.js"
 		},
 		"./scalar": {
 			"types": "./dist/scalar/index.d.ts",
 			"import": "./dist/scalar/index.mjs",
-			"require": "./dist/cjs/scalar/index.js"
+			"require": "./dist/scalar/index.js"
 		},
 		"./scalar/theme": {
 			"types": "./dist/scalar/theme.d.ts",
 			"import": "./dist/scalar/theme.mjs",
-			"require": "./dist/cjs/scalar/theme.js"
+			"require": "./dist/scalar/theme.js"
 		},
 		"./swagger": {
 			"types": "./dist/swagger/index.d.ts",
 			"import": "./dist/swagger/index.mjs",
-			"require": "./dist/cjs/swagger/index.js"
+			"require": "./dist/swagger/index.js"
 		},
 		"./swagger/types": {
 			"types": "./dist/swagger/types.d.ts",
 			"import": "./dist/swagger/types.mjs",
-			"require": "./dist/cjs/swagger/types.js"
+			"require": "./dist/swagger/types.js"
 		},
 		"./types": {
 			"types": "./dist/types.d.ts",
 			"import": "./dist/types.mjs",
-			"require": "./dist/cjs/types.js"
+			"require": "./dist/types.js"
 		}
 	},
 	"keywords": [
@@ -69,7 +69,7 @@
 	"scripts": {
 		"dev": "bun run --watch example/index.ts",
 		"test": "bun test && npm run test:node",
-		"test:node": "npm install --prefix ./test/node/cjs/ && npm install --prefix ./test/node/esm/ && node ./test/node/cjs/index.js && node ./test/node/esm/index.js",
+		"test:node": "npm install --prefix ./test/node/ && npm install --prefix ./test/node/esm/ && node ./test/node/index.js && node ./test/node/esm/index.js",
 		"build": "bun build.ts",
 		"release": "npm run build && npm run test && npm publish --access public"
 	},
@@ -82,7 +82,7 @@
 		"eslint": "9.6.0",
 		"file-type": "^22.0.0",
 		"openapi-types": "^12.1.3",
-		"tsup": "^8.5.0",
+		"tsdown": "^0.22.3",
 		"typebox": "1.2.16",
 		"typescript": "^5.9.2",
 		"zod": "^4.2.1"
