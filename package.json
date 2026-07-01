@@ -1,5 +1,5 @@
 {
-	"name": "@elysiajs/openapi",
+	"name": "@elysia/openapi",
 	"version": "2.0.0-exp.1",
 	"description": "Plugin for Elysia to auto-generate API documentation",
 	"author": {
