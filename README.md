@@ -60,11 +60,18 @@ Then go to `http://localhost:3000/openapi`.
 @default true
 Enable/Disable the plugin
 
+## openapiVersion
+
+@default '3.1.2'
+
+OpenAPI document version to emit. Supports OpenAPI `3.0.x` and `3.1.x`.
+
 ## documentation
 
 OpenAPI documentation information
 
-@see https://spec.openapis.org/oas/v3.0.3.html
+@see https://spec.openapis.org/oas/latest.html
+
 
 ## exclude
 

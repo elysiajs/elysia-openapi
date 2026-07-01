@@ -7,8 +7,8 @@ import { fail } from 'assert'
 
 const req = (path: string) => new Request(`http://localhost${path}`)
 
-describe('Swagger', () => {
-	it('show Swagger page', async () => {
+describe('OpenAPI', () => {
+	it('show OpenAPI page', async () => {
 		const app = new Elysia().use(openapi())
 
 		await app.modules
@@ -17,17 +17,214 @@ describe('Swagger', () => {
 		expect(res.status).toBe(200)
 	})
 
+	it('show OpenAPI page more than once', async () => {
+		const app = new Elysia().use(openapi())
+
+		await app.modules
+
+		const first = await app.handle(req('/openapi'))
+		expect(first.status).toBe(200)
+		expect(await first.text()).toContain('api-reference')
+
+		const second = await app.handle(req('/openapi'))
+		expect(second.status).toBe(200)
+		expect(await second.text()).toContain('api-reference')
+	})
+
 	it('returns a valid OpenAPI json config', async () => {
 		const app = new Elysia().use(openapi())
 
 		await app.modules
 
 		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
-		expect(res.openapi).toBe('3.0.3')
+		expect(res.openapi).toBe('3.1.2')
 		await SwaggerParser.validate(res).catch((err) => fail(err))
 	})
 
-	it('use custom Swagger version', async () => {
+	it('emits OpenAPI 3.0.x when configured', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.0.1'
+			})
+		)
+
+		await app.modules
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+		expect(res.openapi).toBe('3.0.1')
+		await SwaggerParser.validate(res).catch((err) => fail(err))
+	})
+
+	it('emits OpenAPI 3.1.x when configured', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.1.1'
+			})
+		)
+
+		await app.modules
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+		expect(res.openapi).toBe('3.1.1')
+		await SwaggerParser.validate(res).catch((err) => fail(err))
+	})
+
+	it('passes through jsonSchemaDialect for OpenAPI 3.1', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.1.2',
+				documentation: {
+					jsonSchemaDialect:
+						'https://json-schema.org/draft/2020-12/schema'
+				}
+			})
+		)
+
+		await app.modules
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+		expect(res.openapi).toBe('3.1.2')
+		expect(res.jsonSchemaDialect).toBe(
+			'https://json-schema.org/draft/2020-12/schema'
+		)
+		await SwaggerParser.validate(res).catch((err) => fail(err))
+	})
+
+	it('supports OpenAPI 3.1 with swagger-ui provider', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.1.2',
+				provider: 'swagger-ui'
+			})
+		)
+
+		await app.modules
+
+		const page = await app.handle(req('/openapi'))
+		expect(page.status).toBe(200)
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+		expect(res.openapi).toBe('3.1.2')
+		await SwaggerParser.validate(res).catch((err) => fail(err))
+	})
+
+	it('embeds OpenAPI 3.1 spec in scalar provider when embedSpec is enabled', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.1.2',
+				provider: 'scalar',
+				embedSpec: true
+			})
+		)
+
+		await app.modules
+
+		const html = await app.handle(req('/openapi')).then((x) => x.text())
+
+		const configurationMatch = html.match(/data-configuration='([^']+)'/)
+		expect(configurationMatch).not.toBeNull()
+
+		const configuration = JSON.parse(configurationMatch![1])
+		expect(configuration.content).toBeString()
+
+		const embeddedSchema = JSON.parse(configuration.content)
+		expect(embeddedSchema.openapi).toBe('3.1.2')
+	})
+
+	it('does not inject default Scalar CSS when a Scalar theme is configured', async () => {
+		const app = new Elysia().use(
+			openapi({
+				provider: 'scalar',
+				scalar: {
+					theme: 'moon'
+				}
+			})
+		)
+
+		await app.modules
+
+		const html = await app.handle(req('/openapi')).then((x) => x.text())
+
+		expect(html).toContain('"theme":"moon"')
+		expect(html).not.toContain('--scalar-color-accent')
+	})
+
+	it('converts nullable union to type-array for OpenAPI 3.1', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.1.2'
+			})
+		)
+
+		app.get('/nullable', () => 'hello', {
+			response: t.Union([t.String(), t.Null()])
+		})
+
+		await app.modules
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+
+		const response = res.paths['/nullable'].get.responses['200']
+		const schema =
+			response.content?.['application/json']?.schema ??
+			response.content?.['text/plain']?.schema
+
+		expect(schema).toBeDefined()
+		expect(schema.type).toEqual(['string', 'null'])
+		expect(schema.anyOf).toBeUndefined()
+	})
+
+	it('converts nullable union response to nullable:true for OpenAPI 3.0', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.0.3'
+			})
+		)
+
+		app.get('/nullable-30', () => 'hello', {
+			response: t.Union([t.String(), t.Null()])
+		})
+
+		await app.modules
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+		const response = res.paths['/nullable-30'].get.responses['200']
+		const schema =
+			response.content?.['application/json']?.schema ??
+			response.content?.['text/plain']?.schema
+
+		expect(schema).toBeDefined()
+		expect(schema.type).toBe('string')
+		expect(schema.nullable).toBe(true)
+		expect(schema.anyOf).toBeUndefined()
+		await SwaggerParser.validate(res).catch((err) => fail(err))
+	})
+
+	it('treats null response as nullable schema for OpenAPI 3.0', async () => {
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.0.3'
+			})
+		)
+
+		app.get('/null-30', () => null, {
+			response: t.Null()
+		})
+
+		await app.modules
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+		const schema =
+			res.paths['/null-30'].get.responses['200'].content[
+				'application/json'
+			].schema
+
+		expect(schema.nullable).toBe(true)
+		expect(schema.type).toBeUndefined()
+		await SwaggerParser.validate(res).catch((err) => fail(err))
+	})
+
+	it('use custom Swagger-UI version', async () => {
 		const app = new Elysia().use(
 			openapi({
 				provider: 'swagger-ui',
@@ -125,6 +322,53 @@ describe('Swagger', () => {
 
 		const resJson = await app.handle(req('/v2/openapi/json'))
 		expect(resJson.status).toBe(200)
+	})
+
+	it('uses absolute URL for custom absolute specPath', async () => {
+		const app = new Elysia().use(
+			openapi({
+				path: '/api/v1/docs',
+				specPath: '/api/v1/openapi.json'
+			})
+		)
+
+		await app.modules
+
+		const page = await app.handle(req('/api/v1/docs')).then((x) => x.text())
+		expect(page).toContain('"url":"/api/v1/openapi.json"')
+
+		const spec = await app.handle(req('/api/v1/openapi.json'))
+		expect(spec.status).toBe(200)
+	})
+
+	it('keeps relative URL for default specPath pattern', async () => {
+		const app = new Elysia().use(
+			openapi({
+				path: '/api/docs'
+			})
+		)
+
+		await app.modules
+
+		const page = await app.handle(req('/api/docs')).then((x) => x.text())
+		expect(page).toContain('"url":"api/docs/json"')
+
+		const spec = await app.handle(req('/api/docs/json'))
+		expect(spec.status).toBe(200)
+	})
+
+	it('keeps default spec URLs separate for multiple docs instances', async () => {
+		const app = new Elysia()
+			.use(openapi({ provider: 'swagger-ui', path: '/docs/v1' }))
+			.use(openapi({ provider: 'scalar', path: '/docs/v2' }))
+
+		await app.modules
+
+		const swagger = await app.handle(req('/docs/v1')).then((x) => x.text())
+		const scalar = await app.handle(req('/docs/v2')).then((x) => x.text())
+
+		expect(swagger).toContain('"url":"docs/v1/json"')
+		expect(scalar).toContain('"url":"docs/v2/json"')
 	})
 
 	it('Swagger UI options', async () => {
@@ -272,4 +516,38 @@ describe('Swagger', () => {
 		const response = await res.json()
 		expect(Object.keys(response.paths['/all'])).toBeArrayOfSize(8)
 	})
+
+	// https://github.com/elysiajs/elysia-openapi/issues/273
+  it('should exclude routes with specified tags', async () => {
+    const app = new Elysia()
+      .use(
+        openapi({
+          exclude: {
+            tags: ['internal']
+          }
+        })
+      )
+      .get('/', () => 'index')
+      .get('/healthz', () => ({ status: 'ok' }), {
+        detail: {
+          tags: ['internal']
+        }
+      })
+
+    await app.modules
+
+		const res = await app.handle(req('/openapi/json'))
+		expect(res.status).toBe(200)
+		const response = await res.json()
+
+    // Check that only root path is included
+    expect(Object.keys(response.paths)).toEqual(['/'])
+
+    // Verify /healthz is excluded
+    expect(response.paths['/healthz']).toBeUndefined()
+
+    // Verify root path is included and has GET method
+    expect(response.paths['/']).toBeDefined()
+    expect(response.paths['/'].get).toBeDefined()
+  })
 })

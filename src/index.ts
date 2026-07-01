@@ -1,35 +1,35 @@
-import { Elysia } from 'elysia'
+import { Elysia, type AnyElysia } from 'elysia'
 
 import { SwaggerUIRender } from './swagger'
 import { ScalarRender } from './scalar'
 
 import { toOpenAPISchema } from './openapi'
 
-import type { OpenAPIV3 } from 'openapi-types'
 import type { ApiReferenceConfiguration } from '@scalar/types'
-import type { ElysiaOpenAPIConfig } from './types'
+import type { ElysiaOpenAPIConfig, OpenAPIVersion } from './types'
 
-function isCloudflareWorker() {
-	try {
-		// Check for the presence of caches.default, which is a global in Workers
-		if (
-			// @ts-ignore
-			typeof caches !== 'undefined' &&
-			// @ts-ignore
-			typeof caches.default !== 'undefined'
+type OpenAPIDocument = {
+	openapi: OpenAPIVersion
+	[key: string]: unknown
+}
+
+const DEFAULT_OPENAPI_VERSION: OpenAPIVersion = '3.1.2'
+const OPENAPI_VERSION_REGEX = /^3\.(0|1)\.\d+$/
+
+const normalizeOpenAPIVersion = (
+	version: string | undefined
+): OpenAPIVersion => {
+	if (!version) return DEFAULT_OPENAPI_VERSION
+
+	if (!OPENAPI_VERSION_REGEX.test(version)) {
+		console.warn(
+			`[@elysiajs/openapi] Invalid openapiVersion "${version}". Expected 3.0.x or 3.1.x. Falling back to ${DEFAULT_OPENAPI_VERSION}.`
 		)
-			return true
 
-		// @ts-ignore
-		if (typeof WebSocketPair !== 'undefined') {
-			return true
-		}
-	} catch (e) {
-		// If accessing these globals throws an error, it's likely not a Worker
-		return false
+		return DEFAULT_OPENAPI_VERSION
 	}
 
-	return false
+	return version as OpenAPIVersion
 }
 
 /**
@@ -45,6 +45,7 @@ export const openapi = <
 	path = '/openapi' as Path,
 	provider = 'scalar',
 	specPath = `${path}/json`,
+	openapiVersion = DEFAULT_OPENAPI_VERSION,
 	documentation = {},
 	exclude,
 	swagger,
@@ -62,18 +63,32 @@ export const openapi = <
 		...documentation.info
 	}
 
-	const relativePath = specPath.startsWith('/') ? specPath.slice(1) : specPath
+	const getSpecUrl = () => {
+		if (!specPath.startsWith('/')) return specPath
+
+		const defaultSpecPath = `${path}/json`
+		if (specPath === defaultSpecPath) return specPath.slice(1)
+
+		return specPath
+	}
+
+	const specUrl = getSpecUrl()
+	const effectiveOpenAPIVersion: OpenAPIVersion =
+		normalizeOpenAPIVersion(openapiVersion)
+
+	const getRouteCount = (app: AnyElysia) =>
+		(app as any).getGlobalRoutes?.().length ?? app.routes.length
 
 	let totalRoutes = 0
-	let cachedSchema: OpenAPIV3.Document | undefined
+	let cachedSchema: OpenAPIDocument | undefined
 
 	const toFullSchema = ({
 		paths,
 		components: { schemas }
-	}: ReturnType<typeof toOpenAPISchema>): OpenAPIV3.Document => {
-		return (cachedSchema = {
-			openapi: '3.0.3',
+	}: ReturnType<typeof toOpenAPISchema>): OpenAPIDocument => {
+		const schema: OpenAPIDocument = {
 			...documentation,
+			openapi: effectiveOpenAPIVersion,
 			tags: !exclude?.tags
 				? documentation.tags
 				: documentation.tags?.filter(
@@ -96,7 +111,9 @@ export const openapi = <
 					...(documentation.components?.schemas as any)
 				}
 			}
-		})
+		}
+
+		return (cachedSchema = schema)
 	}
 
 	const app = new Elysia({ name: '@elysiajs/openapi' })
@@ -108,7 +125,7 @@ export const openapi = <
 			new Response(
 				provider === 'swagger-ui'
 					? SwaggerUIRender(info, {
-							url: relativePath,
+							url: specUrl,
 							dom_id: '#swagger-ui',
 							version: 'latest',
 							autoDarkMode: true,
@@ -117,7 +134,7 @@ export const openapi = <
 					: ScalarRender(
 							info,
 							{
-								url: relativePath,
+								url: specUrl,
 								version: 'latest',
 								cdn: `https://cdn.jsdelivr.net/npm/@scalar/api-reference@${scalar?.version ?? 'latest'}/dist/browser/standalone.min.js`,
 								...(scalar as ApiReferenceConfiguration),
@@ -125,14 +142,15 @@ export const openapi = <
 							},
 							embedSpec
 								? JSON.stringify(
-										totalRoutes === app.routes.length
+										totalRoutes === getRouteCount(app)
 											? cachedSchema
 											: toFullSchema(
 													toOpenAPISchema(
 														app,
 														exclude,
 														references,
-														mapJsonSchema
+														mapJsonSchema,
+														effectiveOpenAPIVersion
 													)
 												)
 									)
@@ -147,7 +165,7 @@ export const openapi = <
 
 		return app.get(
 			path,
-			embedSpec || isCloudflareWorker() ? page : page(),
+			page,
 			{
 				detail: {
 					hide: true
@@ -156,14 +174,22 @@ export const openapi = <
 		)
 	}).get(
 		specPath,
-		function openAPISchema(): OpenAPIV3.Document {
-			if (totalRoutes === app.routes.length && cachedSchema)
+		function openAPISchema(): OpenAPIDocument {
+			const routeCount = getRouteCount(app)
+
+			if (totalRoutes === routeCount && cachedSchema)
 				return cachedSchema
 
-			totalRoutes = app.routes.length
+			totalRoutes = routeCount
 
 			return toFullSchema(
-				toOpenAPISchema(app, exclude, references, mapJsonSchema)
+				toOpenAPISchema(
+					app,
+					exclude,
+					references,
+					mapJsonSchema,
+					effectiveOpenAPIVersion
+				)
 			)
 		},
 		{
@@ -182,6 +208,6 @@ export const openapi = <
 
 export { fromTypes } from './gen'
 export { toOpenAPISchema, withHeaders } from './openapi'
-export type { ElysiaOpenAPIConfig }
+export type { ElysiaOpenAPIConfig, OpenAPIVersion } from './types'
 
 export default openapi

@@ -2,7 +2,7 @@ import { TypeBox } from '@sinclair/typemap'
 import type { AdditionalReference } from '../types'
 
 const matchRoute = /: Elysia<(.*)>/gs
-const numberKey = /(\d+):/g
+const propertyKey = /([A-Za-z_]\w*|\d+):/g
 
 export interface OpenAPIGeneratorOptions {
 	/**
@@ -115,14 +115,321 @@ export function extractRootObjects(code: string) {
 	return results
 }
 
-export function declarationToJSONSchema(declaration: string) {
+export function extractTypeAliases(declaration: string): Record<string, string> {
+	const aliases: Record<string, string> = {}
+	const typePattern = /\btype\s+(\w+)\s*=\s*/g
+	let match: RegExpExecArray | null
+
+	while ((match = typePattern.exec(declaration)) !== null) {
+		const name = match[1]
+		const startIdx = match.index + match[0].length
+
+		if (declaration[startIdx] !== '{') continue
+
+		let depth = 0
+		let end = startIdx
+		for (; end < declaration.length; end++) {
+			if (declaration[end] === '{') depth++
+			else if (declaration[end] === '}') {
+				depth--
+				if (depth === 0) {
+					end++
+					break
+				}
+			}
+		}
+
+		aliases[name] = declaration
+			.slice(startIdx, end)
+			.replace(/\/\/[^\n]*/g, '')
+			.replace(/\/\*[\s\S]*?\*\//g, '')
+	}
+
+	return aliases
+}
+
+export function inlineTypeReferences(
+	code: string,
+	aliases: Record<string, string>
+): string {
+	const names = Object.keys(aliases).sort((a, b) => b.length - a.length)
+
+	for (const name of names)
+		code = code.replace(new RegExp(`\\b${name}\\b`, 'g'), aliases[name])
+
+	return code
+}
+
+const loadTypeScript = (projectRoot: string): typeof import('typescript') => {
+	const module = process.getBuiltinModule?.('module') as
+		| typeof import('module')
+		| undefined
+	const runtimeRequire =
+		typeof require === 'function'
+			? require
+			: module?.createRequire?.(join(projectRoot, 'package.json'))
+
+	if (!runtimeRequire)
+		throw new Error(
+			'[@elysiajs/openapi/gen] `fromTypes` import type resolution requires CommonJS require or module.createRequire'
+		)
+
+	try {
+		return runtimeRequire('typescript')
+	} catch {
+		throw new Error(
+			'[@elysiajs/openapi/gen] `fromTypes` import type resolution requires `typescript`. Install it with: bun add -d typescript'
+		)
+	}
+}
+
+export function resolveImportedTypes(
+	declaration: string,
+	projectRoot: string,
+	tsconfigPath: string,
+	sourceFilePath: string,
+	existingAliases: Record<string, string>,
+	fs: {
+		existsSync: (path: string) => boolean
+		readFileSync: (path: string, encoding: 'utf8') => string
+	}
+): Record<string, string> {
+	const aliases = { ...existingAliases }
+	const importPattern = /import\("([^"]+)"\)\.(\w+)/g
+	const imports = new Map<string, Set<string>>()
+	let match: RegExpExecArray | null
+
+	while ((match = importPattern.exec(declaration)) !== null) {
+		const [, modulePath, typeName] = match
+		if (aliases[typeName]) continue
+		if (!imports.has(modulePath)) imports.set(modulePath, new Set())
+		imports.get(modulePath)!.add(typeName)
+	}
+
+	if (imports.size === 0) return aliases
+
+	const ts = loadTypeScript(projectRoot)
+	const fullTsconfigPath = tsconfigPath.startsWith('/')
+		? tsconfigPath
+		: join(projectRoot, tsconfigPath)
+	let compilerOptions: Record<string, any> = {}
+
+	if (fs.existsSync(fullTsconfigPath)) {
+		const configFile = ts.readConfigFile(fullTsconfigPath, (path) =>
+			fs.readFileSync(path, 'utf8')
+		)
+
+		if (configFile.config) {
+			const parsed = ts.parseJsonConfigFileContent(
+				configFile.config,
+				ts.sys,
+				projectRoot
+			)
+			compilerOptions = parsed.options
+		}
+	}
+
+	const containingFile = sourceFilePath.startsWith('/')
+		? sourceFilePath
+		: join(projectRoot, sourceFilePath)
+
+	for (const [modulePath, typeNames] of imports) {
+		const resolved = ts.resolveModuleName(
+			modulePath,
+			containingFile,
+			compilerOptions as any,
+			ts.sys
+		)
+		const fileName = resolved.resolvedModule?.resolvedFileName
+
+		if (!fileName || !fs.existsSync(fileName)) continue
+
+		try {
+			const source = fs.readFileSync(fileName, 'utf8')
+			const moduleAliases = extractTypeAliases(source)
+
+			for (const typeName of typeNames)
+				if (moduleAliases[typeName])
+					aliases[typeName] = moduleAliases[typeName]
+		} catch {
+			// Ignore unreadable modules; unresolved imports still degrade to refs.
+		}
+	}
+
+	return aliases
+}
+
+export function flattenNestedIntersections(declaration: string): string {
+	let result = declaration
+	let changed = true
+
+	while (changed) {
+		changed = false
+		const flattened: string[] = []
+
+		for (const part of splitAtTopLevelIntersections(result)) {
+			const expanded = expandOneLevel(part)
+			if (expanded.length > 1) changed = true
+			flattened.push(...expanded)
+		}
+
+		result = flattened.join(' & ')
+	}
+
+	return result
+}
+
+const splitAtTopLevelIntersections = (declaration: string): string[] => {
+	const parts: string[] = []
+	let depth = 0
+	let start = 0
+
+	for (let i = 0; i < declaration.length; i++) {
+		const character = declaration[i]
+		if (character === '{') depth++
+		else if (character === '}') depth--
+		else if (depth === 0 && character === '&') {
+			parts.push(declaration.slice(start, i).trim())
+			start = i + 1
+		}
+	}
+
+	const last = declaration.slice(start).trim()
+	if (last) parts.push(last)
+
+	return parts.filter(Boolean)
+}
+
+const expandOneLevel = (object: string): string[] => {
+	let bestIndex = -1
+	let bestDepth = -1
+	let depth = 0
+
+	for (let i = 0; i < object.length - 4; i++) {
+		const character = object[i]
+		if (character === '{') depth++
+		else if (character === '}') {
+			depth--
+			if (/^\}\s*&\s*\{/.test(object.slice(i)) && depth > bestDepth) {
+				bestIndex = i
+				bestDepth = depth
+			}
+		}
+	}
+
+	if (bestIndex === -1) return [object]
+
+	let groupStart = -1
+	depth = 1
+	for (let i = bestIndex - 1; i >= 0; i--) {
+		if (object[i] === '}') depth++
+		else if (object[i] === '{') {
+			depth--
+			if (depth === 0) {
+				groupStart = i
+				break
+			}
+		}
+	}
+
+	if (groupStart === -1) return [object]
+
+	const members: string[] = []
+	let position = groupStart
+
+	while (position < object.length) {
+		if (object[position] !== '{') break
+
+		depth = 0
+		let end = position
+		for (; end < object.length; end++) {
+			if (object[end] === '{') depth++
+			else if (object[end] === '}') {
+				depth--
+				if (depth === 0) {
+					end++
+					break
+				}
+			}
+		}
+
+		members.push(object.slice(position, end))
+		position = end
+
+		const separator = object.slice(position).match(/^\s*&\s*/)
+		if (!separator) break
+		position += separator[0].length
+	}
+
+	if (members.length <= 1) return [object]
+
+	const prefix = object.slice(0, groupStart)
+	const suffix = object.slice(position)
+
+	return members.map((member) => prefix + member + suffix)
+}
+
+export function extractGenericParam(
+	instance: string,
+	paramIndex: number
+): string | undefined {
+	const openAngle = instance.indexOf('<')
+	if (openAngle === -1) return
+
+	let depth = 0
+	let currentParam = 0
+	let paramStart = openAngle + 1
+
+	for (let i = openAngle + 1; i < instance.length; i++) {
+		const character = instance[i]
+
+		if (
+			character === '<' ||
+			character === '{' ||
+			character === '[' ||
+			character === '('
+		)
+			depth++
+		else if (
+			character === '>' ||
+			character === '}' ||
+			character === ']' ||
+			character === ')'
+		) {
+			if (depth === 0)
+				return currentParam === paramIndex
+					? instance.slice(paramStart, i).trim()
+					: undefined
+
+			depth--
+		} else if (character === ',' && depth === 0) {
+			if (currentParam === paramIndex)
+				return instance.slice(paramStart, i).trim()
+
+			currentParam++
+			paramStart = i + 1
+		}
+	}
+}
+
+export function declarationToJSONSchema(
+	declaration: string,
+	typeAliases?: Record<string, string>
+) {
 	const routes: AdditionalReference = {}
+	const flattened = flattenNestedIntersections(declaration)
 
 	// Treaty is a collection of { ... } & { ... } & { ... }
 	for (const route of extractRootObjects(
-		declaration.replace(numberKey, '"$1":')
+		flattened.replace(propertyKey, '"$1":')
 	)) {
-		let schema = TypeBox(route.replaceAll(/readonly/g, ''))
+		let processed = route
+			.replaceAll(/readonly/g, '')
+			.replace(/import\([^)]*\)\.(\w+)/g, '$1')
+
+		if (typeAliases) processed = inlineTypeReferences(processed, typeAliases)
+
+		let schema = TypeBox(processed)
 		if (schema.type !== 'object') continue
 
 		const paths = []
@@ -260,6 +567,7 @@ export const fromTypes =
 					: ''
 
 				let distDir = join(tmpRoot, 'dist')
+				let rootDir = projectRoot
 
 				// Convert Windows path to Unix for TypeScript CLI
 				if (
@@ -269,27 +577,28 @@ export const fromTypes =
 					extendsRef = extendsRef.replace(/\\/g, '/')
 					src = src.replace(/\\/g, '/')
 					distDir = distDir.replace(/\\/g, '/')
+					rootDir = rootDir.replace(/\\/g, '/')
+				}
+
+				const resolvedCompilerOptions = {
+					lib: ['ESNext'],
+					module: 'ESNext',
+					noEmit: false,
+					declaration: true,
+					emitDeclarationOnly: true,
+					moduleResolution: 'bundler',
+					skipLibCheck: true,
+					skipDefaultLibCheck: true,
+					rootDir,
+					outDir: distDir,
+					...compilerOptions
 				}
 
 				fs.writeFileSync(
 					join(tmpRoot, 'tsconfig.json'),
 					`{
 	${extendsRef}
-	"compilerOptions": ${
-		compilerOptions
-			? JSON.stringify(compilerOptions)
-			: `{
-	"lib": ["ESNext"],
-	"module": "ESNext",
-	"noEmit": false,
-	"declaration": true,
-	"emitDeclarationOnly": true,
-	"moduleResolution": "bundler",
-	"skipLibCheck": true,
-	"skipDefaultLibCheck": true,
-	"outDir": "${distDir}"
-}`
-	},
+	"compilerOptions": ${JSON.stringify(resolvedCompilerOptions)},
 	"include": ["${src}"]
 }`
 				)
@@ -383,6 +692,16 @@ export const fromTypes =
 			if (!debug && fs.existsSync(tmpRoot))
 				fs.rmSync(tmpRoot, { recursive: true, force: true })
 
+			let typeAliases = extractTypeAliases(declaration)
+			typeAliases = resolveImportedTypes(
+				declaration,
+				projectRoot,
+				tsconfigPath,
+				src,
+				typeAliases,
+				fs
+			)
+
 			let instance = declaration.match(
 				instanceName
 					? new RegExp(`${instanceName}: Elysia<(.*)`, 'gs')
@@ -391,21 +710,10 @@ export const fromTypes =
 
 			if (!instance) return
 
-			// Get 5th generic parameter
-			// Elysia<'', {}, {}, {}, Routes>
-			// ------------------------^
-			//         1   2   3   4   5
-			// We want the 4th one
-			for (let i = 0; i < 3; i++)
-				instance = instance.slice(
-					instance.indexOf(
-						'}, {',
-						// remove just `}, `, leaving `{`
-						3
-					)
-				)
+			const routeSection = extractGenericParam(instance, 4)
+			if (!routeSection) return
 
-			return declarationToJSONSchema(instance.slice(2))
+			return declarationToJSONSchema(routeSection, typeAliases)
 		} catch (error) {
 			console.warn(
 				'[@elysiajs/openapi/gen] Failed to generate OpenAPI schema'
