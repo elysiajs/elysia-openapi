@@ -87,6 +87,23 @@ describe('OpenAPI > enumToOpenAPI', () => {
 		expect(result.anyOf).not.toContainEqual({ type: 'Date' })
 	})
 
+	it('should preserve top-level metadata when deduplicating anyOf to one schema', () => {
+		const schema = {
+			description: 'Creation timestamp',
+			title: 'CreatedAt',
+			anyOf: [{ type: 'Date' }, { format: 'date-time', type: 'string' }]
+		}
+
+		const result = enumToOpenApi(schema as any) as any
+
+		expect(result).toEqual({
+			description: 'Creation timestamp',
+			title: 'CreatedAt',
+			type: 'string',
+			format: 'date-time'
+		})
+	})
+
 	it('should fix Date types nested in object properties', () => {
 		const schema = {
 			type: 'object',

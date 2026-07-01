@@ -27,6 +27,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+          no-cache: true
           registry-url: "https://registry.npmjs.org"
 
       - uses: actions/setup-node@v5

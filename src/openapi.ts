@@ -1003,7 +1003,10 @@ export const enumToOpenApi = <
 			seen.add(key)
 			return true
 		})
-		if (deduped.length === 1) return deduped[0] as T
+		if (deduped.length === 1) {
+			const { anyOf, ...rest } = schema
+			return { ...rest, ...(deduped[0] as object) } as T
+		}
 		return { ...schema, anyOf: deduped } as T
 	}
 
@@ -1070,9 +1073,9 @@ const toResponseContent = (
 	schema: OpenAPIV3.SchemaObject | OpenAPIV3.ReferenceObject,
 	type: string | undefined,
 	description: string | undefined
-) =>
+): OpenAPIV3.ResponseObject['content'] | undefined =>
 	VOID_RESPONSE_TYPES.has(type!)
-		? ({ type, description } as any)
+		? undefined
 		: PLAIN_RESPONSE_TYPES.has(type!)
 			? { 'text/plain': { schema } }
 			: { 'application/json': { schema } }
@@ -1091,11 +1094,12 @@ const toResponseObject = (
 	// @ts-ignore Must exclude $ref from root options
 	const { type, description } = unwrapReference(responseSchema, definitions)
 	const headers = toResponseHeaders(schema, vendors, openapiVersion)
+	const content = toResponseContent(responseSchema, type, description)
 
 	return {
 		description: description ?? `Response for status ${status}`,
 		...(headers ? { headers } : {}),
-		content: toResponseContent(responseSchema, type, description)
+		...(content ? { content } : {})
 	}
 }
 
@@ -1166,7 +1170,10 @@ export function toOpenAPISchema(
 		if (route.hooks?.detail?.hide) continue
 
 		const method = route.method.toLowerCase()
-		const shouldExclude = ignorePatterns.some((pattern) => pattern.test(route.path))
+		const shouldExclude = ignorePatterns.some((pattern) => {
+			pattern.lastIndex = 0
+			return pattern.test(route.path)
+		})
 
 		if (
 			(excludeStaticFile && isLikelyStaticFilePath(route.path)) ||

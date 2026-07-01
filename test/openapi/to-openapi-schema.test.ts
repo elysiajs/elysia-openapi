@@ -1266,6 +1266,25 @@ describe('OpenAPI > toOpenAPISchema', () => {
 		expect(schema.paths['/favicon.ico']).toBeUndefined()
 	})
 
+	it('keeps regex path exclusion stable for global patterns', () => {
+		const app = new Elysia()
+			.get('/internal/a', () => 'hidden')
+			.get('/internal/b', () => 'hidden')
+			.get('/public', () => 'visible')
+
+		const schema = JSON.parse(
+			JSON.stringify(
+				toOpenAPISchema(app, {
+					paths: [/^\/internal/g]
+				})
+			)
+		)
+
+		expect(schema.paths['/internal/a']).toBeUndefined()
+		expect(schema.paths['/internal/b']).toBeUndefined()
+		expect(schema.paths['/public']).toBeDefined()
+	})
+
 	it('response accept annotation', () => {
 		const model = new Elysia().model({
 			lilith: t.Object(
