@@ -47,6 +47,15 @@ describe('OpenAPI > exclude.paths', () => {
 		expect(paths).toContain('/health')
 	})
 
+	it('excludes all matching routes with a global RegExp', () => {
+		const paths = getPathKeys(app, { paths: /^\/posts/g })
+		expect(paths).not.toContain('/posts')
+		expect(paths).not.toContain('/posts/{id}')
+		expect(paths).toContain('/users')
+		expect(paths).toContain('/users/{id}')
+		expect(paths).toContain('/health')
+	})
+
 	it('excludes paths matching any RegExp in an array', () => {
 		const paths = getPathKeys(app, { paths: [/^\/posts/, /^\/health/] })
 		expect(paths).not.toContain('/posts')
