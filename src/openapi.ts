@@ -718,7 +718,11 @@ export function toOpenAPISchema(
 
 		if (
 			(excludeStaticFile && route.path.includes('.')) ||
-			excludePaths.includes(route.path) ||
+			excludePaths.some((exclusion) => {
+				if (exclusion instanceof RegExp) return exclusion.test(route.path)
+				if (typeof exclusion === 'string') return exclusion === route.path
+				return false
+			}) ||
 			excludeMethods.includes(method)
 		)
 			continue
