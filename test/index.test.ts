@@ -27,6 +27,45 @@ describe('Swagger', () => {
 		await SwaggerParser.validate(res).catch((err) => fail(err))
 	})
 
+	// it('retains route introspection after a production seal', async () => {
+	// 	const nodeEnv = process.env.NODE_ENV
+	// 	process.env.NODE_ENV = 'production'
+
+	// 	try {
+	// 		const app = new Elysia({ introspect: true })
+	// 			.use(openapi())
+	// 			.model('RetainedResponse', t.Object({ ok: t.Boolean() }))
+	// 			.get('/retained', { response: 'RetainedResponse' }, () => ({
+	// 				ok: true
+	// 			}))
+
+	// 		await app.handle(req('/retained'))
+
+	// 		expect(app['~generation']!.introspect).toBe(true)
+	// 		expect(app.routes.some(({ path }) => path === '/retained')).toBe(true)
+
+	// 		const schema = await app
+	// 			.handle(req('/openapi/json'))
+	// 			.then((response) => response.json())
+	// 		expect(schema.paths['/retained'].get).toBeDefined()
+	// 		expect(schema.components.schemas.RetainedResponse).toBeDefined()
+	// 	} finally {
+	// 		if (nodeEnv === undefined) delete process.env.NODE_ENV
+	// 		else process.env.NODE_ENV = nodeEnv
+	// 	}
+	// })
+
+	// it('keeps no-op configurations out of the introspection image', async () => {
+	// 	const disabled = new Elysia().use(openapi({ enabled: false }))
+	// 	const headless = new Elysia().use(openapi({ provider: null }))
+
+	// 	await disabled.handle(req('/'))
+	// 	await headless.handle(req('/'))
+
+	// 	expect(disabled['~generation']!.introspect).toBe(false)
+	// 	expect(headless['~generation']!.introspect).toBe(false)
+	// })
+
 	it('use custom Swagger version', async () => {
 		const app = new Elysia().use(
 			openapi({

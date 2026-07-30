@@ -427,227 +427,204 @@ describe('Gen > Type Gen', () => {
 	it('integrate', async () => {
 		const reference = fromTypes('test/gen/sample.ts')()
 
+		// console.dir(serializable(reference), {
+		// 	depth: null
+		// })
+
 		expect(serializable(reference)!).toEqual({
-			"/const": {
-				"get": {
-					"body": {},
-					"params": {
-						"type": "object",
-						"properties": {}
+			'/const': {
+				get: {
+					body: {},
+					params: {
+						type: 'object',
+						properties: {}
 					},
-					"query": {},
-					"headers": {},
-					"response": {
-						"200": {
-							"type": "object",
-							"properties": {
-								"name": {
-									"const": "Lilith",
-									"type": "string"
+					query: {},
+					headers: {},
+					response: {
+						'200': {
+							type: 'object',
+							required: ['name', 'friends'],
+							properties: {
+								name: {
+									type: 'string',
+									const: 'Lilith'
 								},
-								"friends": {
-									"type": "array",
-									"items": [
+								friends: {
+									type: 'array',
+									additionalItems: false,
+									items: [
 										{
-											"const": "Sartre",
-											"type": "string"
+											type: 'string',
+											const: 'Sartre'
 										},
 										{
-											"const": "Fouco",
-											"type": "string"
+											type: 'string',
+											const: 'Fouco'
 										}
 									],
-									"additionalItems": false,
-									"minItems": 2
+									minItems: 2
 								}
-							},
-							"required": [
-								"name",
-								"friends"
-							]
+							}
 						}
 					}
 				}
 			},
-			"/": {
-				"get": {
-					"body": {},
-					"params": {
-						"type": "object",
-						"properties": {}
+			'/': {
+				get: {
+					body: {},
+					params: {
+						type: 'object',
+						properties: {}
 					},
-					"query": {},
-					"headers": {},
-					"response": {
-						"204": {
-							"type": "void"
-						},
-						"422": {
-							"type": "object",
-							"properties": {
-								"type": {
-									"const": "validation",
-									"type": "string"
-								},
-								"on": {
-									"type": "string"
-								},
-								"message": {
-									"type": "string"
-								},
-								"found": {},
-								"property": {
-									"type": "string"
-								},
-								"expected": {
-									"type": "string"
-								}
-							},
-							"required": [
-								"type",
-								"on"
-							]
+					query: {},
+					headers: {},
+					response: {
+						'204': {
+							type: 'void'
 						}
 					}
 				}
 			},
-			"/json": {
-				"post": {
-					"body": {
-						"type": "object",
-						"properties": {
-							"hello": {
-								"type": "string"
+			'/json': {
+				post: {
+					body: {
+						type: 'object',
+						required: ['hello'],
+						properties: {
+							hello: {
+								type: 'string'
+							}
+						}
+					},
+					params: {
+						type: 'object',
+						properties: {}
+					},
+					query: {},
+					headers: {},
+					response: {
+						'200': {
+							type: 'object',
+							required: ['hello'],
+							properties: {
+								hello: {
+									type: 'string'
+								}
 							}
 						},
-						"required": [
-							"hello"
-						]
-					},
-					"params": {
-						"type": "object",
-						"properties": {}
-					},
-					"query": {},
-					"headers": {},
-					"response": {
-						"200": {
-							"type": "object",
-							"properties": {
-								"hello": {
-									"type": "string"
-								}
-							},
-							"required": [
-								"hello"
-							]
+						'418': {
+							type: 'string',
+							const: "I'm a teapot"
 						},
-						"418": {
-							"const": "I'm a teapot",
-							"type": "string"
-						},
-						"422": {
-							"type": "object",
-							"properties": {
-								"type": {
-									"const": "validation",
-									"type": "string"
+						'422': {
+							type: 'object',
+							required: ['type', 'title', 'status', 'on'],
+							properties: {
+								type: {
+									type: 'string',
+									const: 'validation'
 								},
-								"on": {
-									"type": "string"
+								title: {
+									type: 'string',
+									const: 'Validation Error'
 								},
-								"message": {
-									"type": "string"
+								status: {
+									type: 'number',
+									const: 422
 								},
-								"found": {},
-								"property": {
-									"type": "string"
+								detail: {
+									type: 'string'
 								},
-								"expected": {
-									"type": "string"
+								on: {
+									type: 'string'
+								},
+								found: {},
+								property: {
+									type: 'string'
+								},
+								expected: {
+									type: 'string'
 								}
-							},
-							"required": [
-								"type",
-								"on"
-							]
+							}
 						}
 					}
 				}
 			},
-			"/character": {
-				"post": {
-					"body": {
-						"type": "string"
+			'/character': {
+				post: {
+					body: {
+						type: 'string'
 					},
-					"params": {
-						"type": "object",
-						"properties": {}
+					params: {
+						type: 'object',
+						properties: {}
 					},
-					"query": {},
-					"headers": {},
-					"response": {
-						"200": {
-							"type": "object",
-							"properties": {
-								"name": {
-									"const": "Lilith",
-									"type": "string"
+					query: {},
+					headers: {},
+					response: {
+						'200': {
+							type: 'object',
+							required: ['name'],
+							properties: {
+								name: {
+									type: 'string',
+									const: 'Lilith'
 								}
-							},
-							"required": [
-								"name"
-							]
+							}
 						},
-						"422": {
-							"type": "object",
-							"properties": {
-								"type": {
-									"const": "validation",
-									"type": "string"
+						'422': {
+							type: 'object',
+							required: ['type', 'title', 'status', 'on'],
+							properties: {
+								type: {
+									type: 'string',
+									const: 'validation'
 								},
-								"on": {
-									"type": "string"
+								title: {
+									type: 'string',
+									const: 'Validation Error'
 								},
-								"message": {
-									"type": "string"
+								status: {
+									type: 'number',
+									const: 422
 								},
-								"found": {},
-								"property": {
-									"type": "string"
+								detail: {
+									type: 'string'
 								},
-								"expected": {
-									"type": "string"
+								on: {
+									type: 'string'
+								},
+								found: {},
+								property: {
+									type: 'string'
+								},
+								expected: {
+									type: 'string'
 								}
-							},
-							"required": [
-								"type",
-								"on"
-							]
+							}
 						}
 					}
 				}
 			},
-			"/no-manual": {
-				"get": {
-					"body": {},
-					"params": {
-						"type": "object",
-						"properties": {}
+			'/no-manual': {
+				get: {
+					body: {},
+					params: {
+						type: 'object',
+						properties: {}
 					},
-					"query": {},
-					"headers": {},
-					"response": {
-						"200": {
-							"type": "object",
-							"properties": {
-								"name": {
-									"type": "string"
+					query: {},
+					headers: {},
+					response: {
+						'200': {
+							type: 'object',
+							required: ['name'],
+							properties: {
+								name: {
+									type: 'string'
 								}
-							},
-							"required": [
-								"name"
-							]
+							}
 						}
 					}
 				}

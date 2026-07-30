@@ -101,7 +101,10 @@ export const openapi = <
 	}
 
 	return (host: AnyElysia) => {
-		const plugin = new Elysia({ name: '@elysiajs/openapi' })
+		const plugin = new Elysia({
+			name: '@elysiajs/openapi',
+			introspect: provider !== null
+		})
 
 		if (provider === null) return host.use(plugin)
 
@@ -174,7 +177,12 @@ export const openapi = <
 					totalRoutes = host.routes.length
 
 					return toFullSchema(
-						toOpenAPISchema(host, exclude, references, mapJsonSchema)
+						toOpenAPISchema(
+							host,
+							exclude,
+							references,
+							mapJsonSchema
+						)
 					)
 				}
 			)
