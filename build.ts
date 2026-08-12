@@ -11,6 +11,9 @@ await build({
 	format: ['esm', 'cjs'],
 	minify: false,
 	unbundle: true,
+	deps: {
+		neverBundle: true
+	},
 	dts: true,
 	outExtensions(c) {
 		return {
@@ -19,3 +22,10 @@ await build({
 		}
 	}
 })
+
+for (const format of ['index.mjs', 'index.js']) {
+	const generatedEntry = await Bun.file(`dist/gen/${format}`).text()
+
+	if (generatedEntry.includes('../node_modules/typebox/'))
+		throw new Error('Build emitted a package-relative TypeBox import')
+}
