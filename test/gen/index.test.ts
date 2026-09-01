@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'bun:test'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { declarationToJSONSchema, fromTypes } from '../../src/gen'
 
@@ -702,5 +705,42 @@ describe('Gen > Type Gen', () => {
 				}
 			}
 		})
+	})
+
+	it('merge compilerOptions override with declaration defaults', () => {
+		const tmpRoot = mkdtempSync(join(tmpdir(), 'elysia-openapi-'))
+
+		try {
+			const reference = fromTypes('test/gen/sample.ts', {
+				tmpRoot,
+				debug: true,
+				silent: true,
+				compilerOptions: {
+					strict: true
+				}
+			})()
+
+			expect(serializable(reference)!).toBeDefined()
+
+			const tsconfig = JSON.parse(
+				readFileSync(join(tmpRoot, 'tsconfig.json'), 'utf8')
+			)
+
+			expect(tsconfig.compilerOptions).toMatchObject({
+				lib: ['ESNext'],
+				module: 'ESNext',
+				noEmit: false,
+				declaration: true,
+				emitDeclarationOnly: true,
+				moduleResolution: 'bundler',
+				skipLibCheck: true,
+				skipDefaultLibCheck: true,
+				rootDir: process.cwd(),
+				outDir: join(tmpRoot, 'dist'),
+				strict: true
+			})
+		} finally {
+			rmSync(tmpRoot, { recursive: true, force: true })
+		}
 	})
 })
