@@ -2,8 +2,9 @@ import { describe, it, expect } from 'bun:test'
 import { Elysia, t } from 'elysia'
 import type { AnyElysia } from 'elysia/base'
 
-import { toOpenAPISchema } from '../../src/openapi'
+import { toOpenAPISchema, withHeaders } from '../../src/openapi'
 import { z } from 'zod'
+import { type } from 'arktype'
 
 const is = <T extends AnyElysia>(
 	app: T,
@@ -230,6 +231,41 @@ describe('OpenAPI > toOpenAPISchema', () => {
 		})
 	})
 
+	it('handle arrayBuffer request body', () => {
+		const app = new Elysia().post(
+			'/upload',
+			{
+				parse: 'arrayBuffer',
+				body: t.Any({ description: 'Binary file data' })
+			},
+			() => 'ok'
+		)
+
+		is(app, {
+			components: {
+				schemas: {}
+			},
+			paths: {
+				'/upload': {
+					post: {
+						operationId: 'postUpload',
+						requestBody: {
+							description: 'Binary file data',
+							content: {
+								'application/octet-stream': {
+									schema: {
+										description: 'Binary file data'
+									}
+								}
+							},
+							required: true
+						}
+					}
+				}
+			}
+		})
+	})
+
 	it('handle response', () => {
 		const app = new Elysia().get('/user', {
 				response: t.Object({
@@ -268,6 +304,37 @@ describe('OpenAPI > toOpenAPISchema', () => {
 				}
 			}
 		})
+	})
+
+	it('handle response headers', () => {
+		const app = new Elysia().get(
+			'/user',
+			{
+				response: withHeaders(
+					t.Object({
+						name: t.Literal('Lilith')
+					}),
+					{
+						'x-request-id': t.String()
+					}
+				)
+			},
+			() => ({ name: 'Lilith' }) as const
+		)
+
+		const schema = JSON.parse(JSON.stringify(toOpenAPISchema(app)))
+		const response = schema.paths['/user'].get.responses['200']
+
+		expect(response.headers).toEqual({
+			'x-request-id': {
+				schema: {
+					type: 'string'
+				}
+			}
+		})
+		expect(
+			response.content['application/json'].schema.headers
+		).toBeUndefined()
 	})
 
 	it('handle multiple response status', () => {
@@ -330,6 +397,74 @@ describe('OpenAPI > toOpenAPISchema', () => {
 				}
 			}
 		})
+	})
+
+	it('handle response headers on multiple status responses', () => {
+		const app = new Elysia().get(
+			'/user',
+			{
+				response: {
+					200: withHeaders(
+						t.Object({
+							name: t.Literal('Fouco')
+						}),
+						{
+							'x-rate-limit': t.Number()
+						}
+					),
+					404: t.Object({
+						name: t.Literal('Lilith')
+					})
+				}
+			},
+			() => ({ name: 'Lilith' }) as const
+		)
+
+		const schema = JSON.parse(JSON.stringify(toOpenAPISchema(app)))
+		const responses = schema.paths['/user'].get.responses
+
+		expect(responses['200'].headers).toEqual({
+			'x-rate-limit': {
+				schema: {
+					type: 'number'
+				}
+			}
+		})
+		expect(responses['404'].headers).toBeUndefined()
+	})
+
+	it('does not mutate reused response schema when adding headers', () => {
+		const response = t.Object({
+			name: t.String()
+		})
+
+		const app = new Elysia()
+			.get(
+				'/with-headers',
+				{
+					response: withHeaders(response, {
+						'x-request-id': t.String()
+					})
+				},
+				() => ({ name: 'Lilith' })
+			)
+			.get('/without-headers', { response }, () => ({ name: 'Lilith' }))
+
+		const schema = JSON.parse(JSON.stringify(toOpenAPISchema(app)))
+
+		expect('headers' in response).toBe(false)
+		expect(
+			schema.paths['/with-headers'].get.responses['200'].headers
+		).toEqual({
+			'x-request-id': {
+				schema: {
+					type: 'string'
+				}
+			}
+		})
+		expect(
+			schema.paths['/without-headers'].get.responses['200'].headers
+		).toBeUndefined()
 	})
 
 	it('handle every parameters together', () => {
@@ -779,6 +914,35 @@ describe('OpenAPI > toOpenAPISchema', () => {
 		})
 	})
 
+	it('normalizes nested TypeBox refs', () => {
+		const app = new Elysia()
+			.model(
+				'user',
+				t.Object({
+					name: t.String()
+				})
+			)
+			.get(
+				'/profile',
+				{
+					response: t.Object({
+						user: t.Ref('user')
+					})
+				},
+				() => ({ user: { name: 'Lilith' } })
+			)
+
+		const schema = JSON.parse(JSON.stringify(toOpenAPISchema(app)))
+
+		expect(
+			schema.paths['/profile'].get.responses['200'].content[
+				'application/json'
+			].schema.properties.user
+		).toEqual({
+			$ref: '#/components/schemas/user'
+		})
+	})
+
 	it('reference multiple response', () => {
 		const model = new Elysia().model({
 			lilith: t.Object({
@@ -1074,6 +1238,42 @@ describe('OpenAPI > toOpenAPISchema', () => {
 		})
 	})
 
+	it('keeps dotted API paths while excluding file-like static paths', () => {
+		const app = new Elysia()
+			.get('/test.2', () => 'hello')
+			.group('/v1.2', (app) =>
+				app.get('/test', () => ({
+					status: 'ok'
+				}))
+			)
+			.get('/favicon.ico', () => 'icon')
+
+		const schema = JSON.parse(JSON.stringify(toOpenAPISchema(app)))
+
+		expect(schema.paths['/test.2']).toBeDefined()
+		expect(schema.paths['/v1.2/test']).toBeDefined()
+		expect(schema.paths['/favicon.ico']).toBeUndefined()
+	})
+
+	it('keeps regex path exclusion stable for global patterns', () => {
+		const app = new Elysia()
+			.get('/internal/a', () => 'hidden')
+			.get('/internal/b', () => 'hidden')
+			.get('/public', () => 'visible')
+
+		const schema = JSON.parse(
+			JSON.stringify(
+				toOpenAPISchema(app, {
+					paths: [/^\/internal/g]
+				})
+			)
+		)
+
+		expect(schema.paths['/internal/a']).toBeUndefined()
+		expect(schema.paths['/internal/b']).toBeUndefined()
+		expect(schema.paths['/public']).toBeDefined()
+	})
+
 	it('response accept annotation', () => {
 		const model = new Elysia().model({
 			lilith: t.Object(
@@ -1247,5 +1447,168 @@ describe('OpenAPI > toOpenAPISchema', () => {
 				}
 			}
 		})
+	})
+
+	it('include body schema when parse is "none"', () => {
+		const app = new Elysia().post(
+			'/echo',
+			{
+				body: t.Object({ input: t.String() }),
+				parse: 'none'
+			},
+			({ request }) => request
+		)
+
+		const schema = JSON.parse(JSON.stringify(toOpenAPISchema(app)))
+
+		expect(schema.paths['/echo'].post.requestBody).toBeDefined()
+		expect(schema.paths['/echo'].post.requestBody.content).toBeDefined()
+		expect(
+			schema.paths['/echo'].post.requestBody.content['application/json']
+		).toBeDefined()
+		expect(
+			schema.paths['/echo'].post.requestBody.content['application/json'].schema
+		).toEqual({
+			type: 'object',
+			properties: {
+				input: { type: 'string' }
+			},
+			required: ['input']
+		})
+	})
+})
+
+describe('OpenAPI > ArkType', () => {
+	// ArkType emits the JSON Schema `$schema` dialect on each converted schema.
+	const $schema = 'https://json-schema.org/draft/2020-12/schema'
+
+	// Body schemas are mirrored across every accepted content type.
+	const body = (s: Record<string, unknown>) => ({
+		content: {
+			'application/json': { schema: s },
+			'application/x-www-form-urlencoded': { schema: s },
+			'multipart/form-data': { schema: s }
+		},
+		required: true
+	})
+
+	const doc = (app: AnyElysia) =>
+		JSON.parse(JSON.stringify(toOpenAPISchema(app)))
+
+	// https://github.com/elysiajs/elysia/issues/1844
+	it('degrades a predicate (string.date) instead of dropping the schema', () => {
+		const app = new Elysia().post(
+			'/bug',
+			{ body: type({ date: 'string.date' }) },
+			() => 'ok'
+		)
+
+		is(app, {
+			components: { schemas: {} },
+			paths: {
+				'/bug': {
+					post: {
+						operationId: 'postBug',
+						requestBody: body({
+							$schema,
+							type: 'object',
+							properties: { date: { type: 'string' } },
+							required: ['date']
+						})
+					}
+				}
+			}
+		})
+	})
+
+	it('maps a Date to string/date-time', () => {
+		const app = new Elysia().post(
+			'/at',
+			{ body: type({ at: 'Date' }) },
+			() => 'ok'
+		)
+
+		is(app, {
+			components: { schemas: {} },
+			paths: {
+				'/at': {
+					post: {
+						operationId: 'postAt',
+						requestBody: body({
+							$schema,
+							type: 'object',
+							properties: {
+								at: { type: 'string', format: 'date-time' }
+							},
+							required: ['at']
+						})
+					}
+				}
+			}
+		})
+	})
+
+	it('leaves a predicate-free schema unchanged', () => {
+		const app = new Elysia().post(
+			'/plain',
+			{ body: type({ name: 'string', age: 'number' }) },
+			() => 'ok'
+		)
+
+		expect(
+			doc(app).paths['/plain'].post.requestBody.content[
+				'application/json'
+			].schema
+		).toEqual({
+			$schema,
+			type: 'object',
+			properties: { name: { type: 'string' }, age: { type: 'number' } },
+			required: ['age', 'name']
+		})
+	})
+
+	// Morphs (e.g. `string.date.parse`) previously threw `code: "morph"` and
+	// dropped the schema; the `default` fallback degrades them to the base type.
+	it('degrades a morph (string.date.parse) instead of dropping the schema', () => {
+		const app = new Elysia().post(
+			'/morph',
+			{ body: type({ when: 'string.date.parse' }) },
+			() => 'ok'
+		)
+
+		const op = doc(app).paths['/morph'].post
+
+		expect(op.requestBody).toBeDefined()
+		expect(
+			op.requestBody.content['application/json'].schema.properties.when
+		).toEqual({ type: 'string' })
+	})
+
+	it('lets a user-supplied mapJsonSchema.arktype override win', () => {
+		const app = new Elysia().post(
+			'/override',
+			{ body: type({ date: 'string.date' }) },
+			() => 'ok'
+		)
+
+		const override = {
+			type: 'object',
+			properties: { date: { type: 'string', format: 'overridden' } },
+			required: ['date']
+		}
+
+		const result = JSON.parse(
+			JSON.stringify(
+				toOpenAPISchema(app, undefined, undefined, {
+					arktype: () => override
+				})
+			)
+		)
+
+		expect(
+			result.paths['/override'].post.requestBody.content[
+				'application/json'
+			].schema
+		).toEqual(override)
 	})
 })

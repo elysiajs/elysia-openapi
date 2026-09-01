@@ -6,9 +6,26 @@ import { ScalarRender } from './scalar'
 
 import { toOpenAPISchema } from './openapi'
 
-import type { OpenAPIV3 } from 'openapi-types'
 import type { ApiReferenceConfiguration } from '@scalar/types'
-import type { ElysiaOpenAPIConfig } from './types'
+import type { ElysiaOpenAPIConfig, OpenAPIVersion } from './types'
+
+type OpenAPIDocument = {
+	openapi: OpenAPIVersion
+	[key: string]: unknown
+}
+
+const DEFAULT_OPENAPI_VERSION: OpenAPIVersion = '3.1.2'
+const OPENAPI_VERSION_REGEX = /^3\.(0|1)\.\d+$/
+
+const normalizeOpenAPIVersion = (version: string): OpenAPIVersion => {
+	if (OPENAPI_VERSION_REGEX.test(version)) return version as OpenAPIVersion
+
+	console.warn(
+		`[@elysiajs/openapi] Invalid openapiVersion "${version}". Expected 3.0.x or 3.1.x. Falling back to ${DEFAULT_OPENAPI_VERSION}.`
+	)
+
+	return DEFAULT_OPENAPI_VERSION
+}
 
 function isCloudflareWorker() {
 	try {
@@ -46,6 +63,7 @@ export const openapi = <
 	path = '/openapi' as Path,
 	provider = 'scalar',
 	specPath = `${path}/json`,
+	openapiVersion = DEFAULT_OPENAPI_VERSION,
 	documentation = {},
 	exclude,
 	swagger,
@@ -64,17 +82,18 @@ export const openapi = <
 	}
 
 	const relativePath = specPath.startsWith('/') ? specPath.slice(1) : specPath
+	const effectiveOpenAPIVersion = normalizeOpenAPIVersion(openapiVersion)
 
 	let totalRoutes = 0
-	let cachedSchema: OpenAPIV3.Document | undefined
+	let cachedSchema: OpenAPIDocument | undefined
 
 	const toFullSchema = ({
 		paths,
 		components: { schemas }
-	}: ReturnType<typeof toOpenAPISchema>): OpenAPIV3.Document => {
+	}: ReturnType<typeof toOpenAPISchema>): OpenAPIDocument => {
 		return (cachedSchema = {
-			openapi: '3.0.3',
 			...documentation,
+			openapi: effectiveOpenAPIVersion,
 			tags: !exclude?.tags
 				? documentation.tags
 				: documentation.tags?.filter(
@@ -136,7 +155,8 @@ export const openapi = <
 														host,
 														exclude,
 														references,
-														mapJsonSchema
+														mapJsonSchema,
+														effectiveOpenAPIVersion
 													)
 												)
 									)
@@ -170,7 +190,7 @@ export const openapi = <
 						hide: true
 					}
 				},
-				function openAPISchema(): OpenAPIV3.Document {
+				function openAPISchema(): OpenAPIDocument {
 					if (totalRoutes === host.routes.length && cachedSchema)
 						return cachedSchema
 
@@ -181,7 +201,8 @@ export const openapi = <
 							host,
 							exclude,
 							references,
-							mapJsonSchema
+							mapJsonSchema,
+							effectiveOpenAPIVersion
 						)
 					)
 				}
@@ -193,6 +214,6 @@ export const openapi = <
 
 export { fromTypes } from './gen'
 export { toOpenAPISchema, withHeaders } from './openapi'
-export type { ElysiaOpenAPIConfig }
+export type { ElysiaOpenAPIConfig, OpenAPIVersion } from './types'
 
 export default openapi

@@ -23,8 +23,69 @@ describe('Swagger', () => {
 		await app.modules
 
 		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+		expect(res.openapi).toBe('3.1.2')
+		await SwaggerParser.validate(res).catch((err) => fail(err))
+	})
+
+	it('emits the configured OpenAPI version', async () => {
+		const app = new Elysia().use(openapi({ openapiVersion: '3.0.3' }))
+
+		await app.modules
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
 		expect(res.openapi).toBe('3.0.3')
 		await SwaggerParser.validate(res).catch((err) => fail(err))
+	})
+
+	it('passes OpenAPI 3.1 documentation fields through', async () => {
+		const jsonSchemaDialect =
+			'https://json-schema.org/draft/2020-12/schema'
+		const app = new Elysia().use(
+			openapi({
+				openapiVersion: '3.1.2',
+				documentation: { jsonSchemaDialect }
+			})
+		)
+
+		await app.modules
+
+		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
+		expect(res.jsonSchemaDialect).toBe(jsonSchemaDialect)
+	})
+
+	it('normalizes nullable schemas for the configured OpenAPI version', async () => {
+		const schemaFor = async (openapiVersion: '3.0.3' | '3.1.2') => {
+			const app = new Elysia()
+				.use(openapi({ openapiVersion }))
+				.get(
+					'/nullable',
+					{ response: t.Union([t.String(), t.Null()]) },
+					() => 'hello'
+				)
+
+			await app.modules
+
+			const document = await app
+				.handle(req('/openapi/json'))
+				.then((x) => x.json())
+
+			return (
+				document.paths['/nullable'].get.responses['200'].content?.[
+					'application/json'
+				]?.schema ??
+				document.paths['/nullable'].get.responses['200'].content?.[
+					'text/plain'
+				]?.schema
+			)
+		}
+
+		expect(await schemaFor('3.0.3')).toMatchObject({
+			type: 'string',
+			nullable: true
+		})
+		expect(await schemaFor('3.1.2')).toMatchObject({
+			type: ['string', 'null']
+		})
 	})
 
 	// it('retains route introspection after a production seal', async () => {
@@ -201,10 +262,9 @@ describe('Swagger', () => {
 		expect(response.paths['/void'].get.responses['204'].description).toBe(
 			'Void response'
 		)
-		expect(response.paths['/void'].get.responses['204'].content).toEqual({
-			description: 'Void response',
-			type: 'void'
-		})
+		expect(
+			response.paths['/void'].get.responses['204'].content
+		).toBeUndefined()
 	})
 
 	it('should not return content response when using Undefined type', async () => {
@@ -228,10 +288,7 @@ describe('Swagger', () => {
 		).toBe('Undefined response')
 		expect(
 			response.paths['/undefined'].get.responses['204'].content
-		).toEqual({
-			type: 'undefined',
-			description: 'Undefined response'
-		})
+		).toBeUndefined()
 	})
 
 	it('should not return content response when using Null type', async () => {
@@ -251,10 +308,9 @@ describe('Swagger', () => {
 		expect(response.paths['/null'].get.responses['204'].description).toBe(
 			'Null response'
 		)
-		expect(response.paths['/null'].get.responses['204'].content).toEqual({
-			type: 'null',
-			description: 'Null response'
-		})
+		expect(
+			response.paths['/null'].get.responses['204'].content
+		).toBeUndefined()
 	})
 
 	it('should set the required field to true when a request body is present', async () => {

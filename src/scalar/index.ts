@@ -150,7 +150,7 @@ export const ScalarRender = (
       }
     </style>
     <style>
-      ${config.customCss ?? elysiaCSS}
+      ${config.customCss ?? (config.theme ? '' : elysiaCSS)}
     </style>
   </head>
   <body>

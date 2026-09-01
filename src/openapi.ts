@@ -1,6 +1,6 @@
 import { t } from 'elysia'
 import type { AnyElysia } from 'elysia/base'
-import type { LocalHook, SingletonBase, InputSchema } from 'elysia/types'
+import type { InputSchema, LocalHook, SingletonBase } from 'elysia/types'
 
 import type { OpenAPIV3 } from 'openapi-types'
 
@@ -11,12 +11,14 @@ type TSchema = OpenAPIV3.SchemaObject & {
 	[key: string]: any
 }
 type TObject = TSchema
+type TProperties = Record<string, TSchema>
 
 import type {
 	AdditionalReference,
 	AdditionalReferences,
 	ElysiaOpenAPIConfig,
-	MapJsonSchema
+	MapJsonSchema,
+	OpenAPIVersion
 } from './types'
 
 export const capitalize = (word: string) =>
@@ -66,7 +68,8 @@ export const getPossiblePath = (path: string): string[] => {
 const isValidSchema = (schema: any): schema is TSchema =>
 	schema &&
 	typeof schema === 'object' &&
-	(schema.type ||
+	((schema['~kind'] && schema['~kind'] !== 'Unknown') ||
+		schema.type ||
 		schema.properties ||
 		schema.items ||
 		schema.anyOf ||
@@ -76,10 +79,12 @@ const isValidSchema = (schema: any): schema is TSchema =>
 		schema.enum ||
 		schema.const !== undefined)
 
-export const getLoosePath = (path: string) =>
-	path.charCodeAt(path.length - 1) === 47
-		? path.slice(0, path.length - 1)
-		: path + '/'
+export const getLoosePath = (path: string) => {
+	if (path.charCodeAt(path.length - 1) === 47)
+		return path.slice(0, path.length - 1)
+
+	return path + '/'
+}
 
 const warnings = {
 	zod4: `import openapi from '@elysiajs/openapi'
@@ -216,8 +221,11 @@ const isTSchema = (value: any): value is TSchema => {
 
 	if (value['~standard']) return false
 
+	// Additional check: if it's an object with only numeric keys, it's likely a status code map
 	const keys = Object.keys(value)
-	if (keys.length > 0 && keys.every((k) => !isNaN(Number(k)))) return false
+	if (keys.length > 0 && keys.every((k) => !isNaN(Number(k)))) {
+		return false
+	}
 
 	return isValidSchema(value)
 }
@@ -242,7 +250,8 @@ const normalizeSchemaReference = (
 const mergeSchemaProperty = (
 	existing: TSchema | string | undefined,
 	incoming: TSchema | string | undefined,
-	vendors?: MapJsonSchema
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ): TSchema | string | undefined => {
 	if (!existing) return incoming
 	if (!incoming) return existing
@@ -255,10 +264,20 @@ const mergeSchemaProperty = (
 	if (!incomingSchema) return existing
 
 	if (!isTSchema(incomingSchema) && incomingSchema['~standard'])
-		incomingSchema = unwrapSchema(incomingSchema, vendors) as any
+		incomingSchema = unwrapSchema(
+			incomingSchema,
+			vendors,
+			'input',
+			openapiVersion
+		) as any
 
 	if (!isTSchema(existingSchema) && existingSchema['~standard'])
-		existingSchema = unwrapSchema(existingSchema, vendors) as any
+		existingSchema = unwrapSchema(
+			existingSchema,
+			vendors,
+			'input',
+			openapiVersion
+		) as any
 
 	if (!incomingSchema) return existingSchema
 	if (!existingSchema) return incomingSchema
@@ -288,7 +307,8 @@ type ResponseSchema =
 
 const unwrapResponseSchema = (
 	schema: ResponseSchema,
-	vendors?: MapJsonSchema
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ) =>
 	typeof schema === 'string'
 		? normalizeSchemaReference(schema)
@@ -298,7 +318,12 @@ const unwrapResponseSchema = (
 				? schema
 				: // @ts-ignore
 					schema['~standard']
-					? unwrapSchema(schema as any, vendors, 'output')
+					? unwrapSchema(
+							schema as any,
+							vendors,
+							'output',
+							openapiVersion
+						)
 					: Object.fromEntries(
 							Object.entries(schema).map(([status, schema]) => [
 								status,
@@ -309,7 +334,8 @@ const unwrapResponseSchema = (
 										: unwrapSchema(
 												schema as any,
 												vendors,
-												'output'
+												'output',
+												openapiVersion
 											)
 							])
 						)
@@ -320,14 +346,15 @@ const unwrapResponseSchema = (
 const mergeResponseSchema = (
 	_existing: ResponseSchema,
 	_incoming: ResponseSchema,
-	vendors?: MapJsonSchema
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ): TSchema | { [status: number]: TSchema | string } | string | undefined => {
 	if (!_existing) return _incoming
 	if (!_incoming) return _existing
 
 	// Normalize string references to TRef nodes
-	let existing = unwrapResponseSchema(_existing, vendors)
-	let incoming = unwrapResponseSchema(_incoming, vendors)
+	let existing = unwrapResponseSchema(_existing, vendors, openapiVersion)
+	let incoming = unwrapResponseSchema(_incoming, vendors, openapiVersion)
 
 	if (!existing && !incoming) return undefined
 	if (incoming && !existing) return incoming as any
@@ -357,7 +384,8 @@ const mergeResponseSchema = (
 			schema[status] = mergeSchemaProperty(
 				existingSchema as TSchema,
 				incomingSchema as TSchema,
-				vendors
+				vendors,
+				openapiVersion
 			)
 		else if (existingSchema) schema[status] = existingSchema
 		else if (incomingSchema) schema[status] = incomingSchema
@@ -383,7 +411,8 @@ const mergeStandaloneValidators = (
 	> & {
 		schemas?: InputSchema[]
 	} & InputSchema,
-	vendors?: MapJsonSchema
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ) => {
 	const merged: any = { ...hooks }
 
@@ -395,42 +424,48 @@ const mergeStandaloneValidators = (
 			merged.body = mergeSchemaProperty(
 				merged.body as TSchema,
 				validator.body as TSchema,
-				vendors
+				vendors,
+				openapiVersion
 			)
 
 		if (validator.headers)
 			merged.headers = mergeSchemaProperty(
 				merged.headers as TSchema,
 				validator.headers as TSchema,
-				vendors
+				vendors,
+				openapiVersion
 			)
 
 		if (validator.query)
 			merged.query = mergeSchemaProperty(
 				merged.query as TSchema,
 				validator.query as TSchema,
-				vendors
+				vendors,
+				openapiVersion
 			)
 
 		if (validator.params)
 			merged.params = mergeSchemaProperty(
 				merged.params as TSchema,
 				validator.params as TSchema,
-				vendors
+				vendors,
+				openapiVersion
 			)
 
 		if (validator.cookie)
 			merged.cookie = mergeSchemaProperty(
 				merged.cookie as TSchema,
 				validator.cookie as TSchema,
-				vendors
+				vendors,
+				openapiVersion
 			)
 
 		if (validator.response)
 			merged.response = mergeResponseSchema(
 				merged.response as TSchema,
 				validator.response as TSchema,
-				vendors
+				vendors,
+				openapiVersion
 			)
 	}
 
@@ -446,16 +481,18 @@ const mergeStandaloneValidators = (
 	if (typeof merged.cookie === 'string')
 		merged.cookie = normalizeSchemaReference(merged.cookie)
 	if (merged.response && typeof merged.response !== 'string') {
+		// Normalize string references in status code objects
 		const response = merged.response as any
 		if ('type' in response || '$ref' in response) {
 			// It's a schema, not a status code object
 			if (typeof response === 'string')
 				merged.response = normalizeSchemaReference(response)
-		} else
+		} else {
 			// It's a status code object, normalize each value
 			for (const [status, schema] of Object.entries(response))
 				if (typeof schema === 'string')
 					response[status] = normalizeSchemaReference(schema)
+		}
 	}
 
 	return merged
@@ -467,15 +504,25 @@ const mergeStandaloneValidators = (
  * This makes guard() schemas accessible in the OpenAPI spec by converting
  * the standaloneValidator array into direct hook properties.
  */
-const flattenRoutes = (routes: any[], vendors?: MapJsonSchema): any[] =>
+const flattenRoutes = (
+	routes: any[],
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
+): any[] =>
 	routes.map((route) => {
 		if (!route.hooks?.schemas?.length) return route
 
 		return {
 			...route,
-			hooks: mergeStandaloneValidators(route.hooks, vendors)
+			hooks: mergeStandaloneValidators(
+				route.hooks,
+				vendors,
+				openapiVersion
+			)
 		}
 	})
+
+// ============================================================================
 
 const unwrapReference = <T extends OpenAPIV3.SchemaObject | undefined>(
 	schema: T,
@@ -499,14 +546,29 @@ const unwrapReference = <T extends OpenAPIV3.SchemaObject | undefined>(
 export const unwrapSchema = (
 	schema: InputSchema['body'],
 	mapJsonSchema?: MapJsonSchema,
-	io: 'input' | 'output' = 'input'
+	io: 'input' | 'output' = 'input',
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ): OpenAPIV3.SchemaObject | undefined => {
 	if (!schema) return
 
 	if (typeof schema === 'string') schema = toRef(schema)
 
 	if (!(schema as any)?.['~standard'] && isValidSchema(schema))
-		return enumToOpenApi(schema as TSchema) as OpenAPIV3.SchemaObject
+		return normalizeSchemaForOpenAPIVersion(
+			enumToOpenApi(schema as TSchema),
+			openapiVersion
+		)
+
+	// Already unwrapped by merging standalone validators
+	if (
+		!(schema as any)?.['~standard'] &&
+		// @ts-ignore
+		(schema.$schema || schema.type || schema.properties || schema.items)
+	)
+		return normalizeSchemaForOpenAPIVersion(
+			schema as OpenAPIV3.SchemaObject,
+			openapiVersion
+		)
 
 	if (!(schema as any)?.['~standard']) return
 
@@ -514,17 +576,57 @@ export const unwrapSchema = (
 	const vendor = schema['~standard'].vendor
 
 	try {
+		const jsonSchemaTarget = openapiVersion.startsWith('3.0.')
+			? 'draft-07'
+			: 'draft-2020-12'
+
 		if (
 			mapJsonSchema?.[vendor] &&
 			typeof mapJsonSchema[vendor] === 'function'
 		)
-			return enumToOpenApi(mapJsonSchema[vendor](schema))
+			return normalizeSchemaForOpenAPIVersion(
+				enumToOpenApi(mapJsonSchema[vendor](schema)),
+				openapiVersion
+			)
 
-		if ((schema as any)['~standard']?.jsonSchema?.[io])
-			return enumToOpenApi(
-				(schema as any)['~standard'].jsonSchema[io]({
-					target: 'draft-2020-12'
-				})
+		// ============================================================================
+		// ArkType toJsonSchema fallback (predicates, morphs, Date, etc.)
+		// ============================================================================
+		if (vendor === 'arktype')
+			return normalizeSchemaForOpenAPIVersion(
+				enumToOpenApi(
+					// @ts-ignore
+					schema?.toJsonSchema?.({
+						fallback: {
+							// real Date types -> string with date-time format
+							date: (
+								ctx: { base: Record<string, unknown> }
+							) => ({
+								...ctx.base,
+								type: 'string',
+								format: 'date-time'
+							}),
+							// anything else unrepresentable -> keep the base type
+							default: (
+								ctx: { base: Record<string, unknown> }
+							) => ctx.base
+						}
+					})
+				),
+				openapiVersion
+			)
+
+		// @ts-ignore
+		if (schema['~standard']?.jsonSchema?.[io])
+			// @ts-ignore
+			return normalizeSchemaForOpenAPIVersion(
+				enumToOpenApi(
+					// @ts-ignore
+					schema['~standard'].jsonSchema[io]({
+						target: jsonSchemaTarget
+					})
+				),
+				openapiVersion
 			)
 
 		switch (vendor) {
@@ -581,17 +683,254 @@ export const unwrapSchema = (
 				break
 		}
 
-		if (vendor === 'arktype')
-			// @ts-ignore
-			return enumToOpenApi(schema?.toJsonSchema?.())
-
-		return enumToOpenApi(
-			// @ts-ignore
-			schema.toJSONSchema?.() ?? schema?.toJsonSchema?.()
+		return normalizeSchemaForOpenAPIVersion(
+			enumToOpenApi(
+				// @ts-ignore
+				schema.toJSONSchema?.() ?? schema?.toJsonSchema?.()
+			),
+			openapiVersion
 		)
 	} catch (error) {
 		console.warn(error)
 	}
+}
+
+const SCHEMA_OBJECT_MAP_KEYS = new Set([
+	'properties',
+	'patternProperties',
+	'$defs',
+	'definitions',
+	'dependentSchemas'
+])
+
+const SCHEMA_ARRAY_KEYS = new Set(['allOf', 'anyOf', 'oneOf', 'prefixItems'])
+
+const SCHEMA_OR_BOOL_KEYS = new Set([
+	'items',
+	'additionalProperties',
+	'unevaluatedProperties',
+	'contains',
+	'not',
+	'if',
+	'then',
+	'else',
+	'propertyNames'
+])
+
+const normalizeNullableSchemaForOAS30 = (schema: unknown): unknown => {
+	if (!schema || typeof schema !== 'object') return schema
+
+	if (Array.isArray(schema))
+		return schema.map((item) => normalizeNullableSchemaForOAS30(item))
+
+	const normalized = { ...(schema as Record<string, unknown>) }
+
+	if (normalized.type === 'null') {
+		delete normalized.type
+		normalized.nullable = true
+		return normalized
+	}
+
+	if (Array.isArray(normalized.type) && normalized.type.includes('null')) {
+		const nonNullTypes = normalized.type.filter(
+			(type) => type !== 'null'
+		) as string[]
+
+		normalized.nullable = true
+
+		if (nonNullTypes.length === 1) normalized.type = nonNullTypes[0]
+		else if (nonNullTypes.length > 1) normalized.type = nonNullTypes
+		else delete normalized.type
+
+		return normalized
+	}
+
+	if (Array.isArray(normalized.anyOf)) {
+		const entries = normalized.anyOf as Array<Record<string, unknown>>
+		const nonNullEntries = entries.filter((entry) => {
+			const isNormalizedNullEntry =
+				entry?.nullable === true &&
+				!('type' in entry) &&
+				Object.keys(entry).length === 1
+
+			return entry?.type !== 'null' && !isNormalizedNullEntry
+		})
+
+		if (nonNullEntries.length !== entries.length) {
+			normalized.nullable = true
+
+			if (nonNullEntries.length === 1) {
+				delete normalized.anyOf
+				Object.assign(normalized, nonNullEntries[0])
+			} else normalized.anyOf = nonNullEntries
+		}
+	}
+
+	if (Array.isArray(normalized.oneOf)) {
+		const entries = normalized.oneOf as Array<Record<string, unknown>>
+		const nonNullEntries = entries.filter((entry) => {
+			const isNormalizedNullEntry =
+				entry?.nullable === true &&
+				!('type' in entry) &&
+				Object.keys(entry).length === 1
+
+			return entry?.type !== 'null' && !isNormalizedNullEntry
+		})
+
+		if (nonNullEntries.length !== entries.length) {
+			normalized.nullable = true
+
+			if (nonNullEntries.length === 1) {
+				delete normalized.oneOf
+				Object.assign(normalized, nonNullEntries[0])
+			} else normalized.oneOf = nonNullEntries
+		}
+	}
+
+	for (const [key, value] of Object.entries(normalized)) {
+		if (SCHEMA_OBJECT_MAP_KEYS.has(key)) {
+			if (value && typeof value === 'object' && !Array.isArray(value)) {
+				const next: Record<string, unknown> = {}
+				for (const [nestedKey, nestedValue] of Object.entries(value))
+					next[nestedKey] = normalizeNullableSchemaForOAS30(nestedValue)
+				normalized[key] = next
+			}
+			continue
+		}
+
+		if (SCHEMA_ARRAY_KEYS.has(key)) {
+			if (Array.isArray(value))
+				normalized[key] = value.map((item) =>
+					normalizeNullableSchemaForOAS30(item)
+				)
+			continue
+		}
+
+		if (SCHEMA_OR_BOOL_KEYS.has(key)) {
+			if (value && typeof value === 'object') {
+				if (Array.isArray(value))
+					normalized[key] = value.map((item) =>
+						normalizeNullableSchemaForOAS30(item)
+					)
+				else normalized[key] = normalizeNullableSchemaForOAS30(value)
+			}
+			continue
+		}
+
+		if (key === 'dependencies') {
+			if (value && typeof value === 'object' && !Array.isArray(value)) {
+				const next: Record<string, unknown> = {}
+				for (const [nestedKey, nestedValue] of Object.entries(value))
+					next[nestedKey] =
+						nestedValue &&
+						typeof nestedValue === 'object' &&
+						!Array.isArray(nestedValue)
+							? normalizeNullableSchemaForOAS30(nestedValue)
+							: nestedValue
+				normalized[key] = next
+			}
+		}
+	}
+
+	return normalized
+}
+
+const normalizeNullableSchemaForOAS31 = (schema: unknown): unknown => {
+	if (!schema || typeof schema !== 'object') return schema
+
+	if (Array.isArray(schema))
+		return schema.map((item) => normalizeNullableSchemaForOAS31(item))
+
+	const normalized = { ...(schema as Record<string, unknown>) }
+
+	const rewriteNullUnion = (key: 'anyOf' | 'oneOf') => {
+		if (!Array.isArray(normalized[key])) return
+
+		const entries = normalized[key] as Array<Record<string, unknown>>
+		const nullEntries = entries.filter((entry) => entry?.type === 'null')
+		if (nullEntries.length === 0) return
+
+		const nonNullEntries = entries.filter((entry) => entry?.type !== 'null')
+		if (nonNullEntries.length !== 1) return
+
+		const [nonNull] = nonNullEntries
+		const nonNullType = nonNull?.type
+
+		if (typeof nonNullType !== 'string') return
+
+		delete normalized[key]
+		Object.assign(normalized, nonNull)
+		normalized.type = [nonNullType, 'null']
+	}
+
+	rewriteNullUnion('anyOf')
+	rewriteNullUnion('oneOf')
+
+	for (const [key, value] of Object.entries(normalized)) {
+		if (SCHEMA_OBJECT_MAP_KEYS.has(key)) {
+			if (value && typeof value === 'object' && !Array.isArray(value)) {
+				const next: Record<string, unknown> = {}
+				for (const [nestedKey, nestedValue] of Object.entries(value))
+					next[nestedKey] = normalizeNullableSchemaForOAS31(nestedValue)
+				normalized[key] = next
+			}
+			continue
+		}
+
+		if (SCHEMA_ARRAY_KEYS.has(key)) {
+			if (Array.isArray(value))
+				normalized[key] = value.map((item) =>
+					normalizeNullableSchemaForOAS31(item)
+				)
+			continue
+		}
+
+		if (SCHEMA_OR_BOOL_KEYS.has(key)) {
+			if (value && typeof value === 'object') {
+				if (Array.isArray(value))
+					normalized[key] = value.map((item) =>
+						normalizeNullableSchemaForOAS31(item)
+					)
+				else normalized[key] = normalizeNullableSchemaForOAS31(value)
+			}
+			continue
+		}
+
+		if (key === 'dependencies') {
+			if (value && typeof value === 'object' && !Array.isArray(value)) {
+				const next: Record<string, unknown> = {}
+				for (const [nestedKey, nestedValue] of Object.entries(value))
+					next[nestedKey] =
+						nestedValue &&
+						typeof nestedValue === 'object' &&
+						!Array.isArray(nestedValue)
+							? normalizeNullableSchemaForOAS31(nestedValue)
+							: nestedValue
+				normalized[key] = next
+			}
+		}
+	}
+
+	return normalized
+}
+
+export const nullToOpenApi = <T>(
+	schema: T,
+	openapiVersion: OpenAPIVersion
+): T => {
+	if (!schema) return schema
+
+	if (openapiVersion.startsWith('3.0.'))
+		return normalizeNullableSchemaForOAS30(schema) as T
+
+	return normalizeNullableSchemaForOAS31(schema) as T
+}
+
+const normalizeSchemaForOpenAPIVersion = <T>(
+	schema: T,
+	openapiVersion: OpenAPIVersion
+): T => {
+	return nullToOpenApi(schema, openapiVersion)
 }
 
 /**
@@ -610,45 +949,169 @@ export const enumToOpenApi = <
 ): T => {
 	if (!_schema || typeof _schema !== 'object') return _schema
 
-	// TypeBox 1.0 const-unions are plain JSON Schema `anyOf` of consts
-	{
-		const schema = _schema as { anyOf?: { const?: unknown }[] }
+	if (Array.isArray(_schema))
+		return _schema.map((item) => enumToOpenApi(item)) as unknown as T
 
-		if (
-			schema.anyOf &&
-			Array.isArray(schema.anyOf) &&
-			schema.anyOf.length > 0 &&
-			schema.anyOf.every(
-				(item) =>
-					item && typeof item === 'object' && item.const !== undefined
-			)
+	const schema = _schema as OpenAPIV3.SchemaObject & Record<string, unknown>
+
+	if (
+		Array.isArray(schema.anyOf) &&
+		schema.anyOf.length > 0 &&
+		schema.anyOf.every(
+			(item) =>
+				item &&
+				typeof item === 'object' &&
+				(item as { const?: unknown }).const !== undefined
 		)
-			return {
-				type: 'string',
-				enum: schema.anyOf.map((item) => item.const)
-			} as any
-	}
-
-	const schema = _schema as OpenAPIV3.SchemaObject
-
-	if (schema.type === 'object' && schema.properties) {
-		const properties: Record<string, unknown> = {}
-		for (const [key, value] of Object.entries(schema.properties))
-			properties[key] = enumToOpenApi(value)
-
+	)
 		return {
-			...schema,
-			properties
-		} as T
-	}
-
-	if (schema.type === 'array' && schema.items)
-		return {
-			...schema,
-			items: enumToOpenApi(schema.items)
+			type: 'string',
+			enum: schema.anyOf.map((item) => (item as { const: unknown }).const)
 		} as T
 
-	return schema as T
+	if (typeof schema.$ref === 'string')
+		return toRef(schema.$ref) as unknown as T
+
+	// TypeBox's t.Date() serialises to anyOf: [{"type":"Date"}, ...].
+	// "Date" is not a valid OpenAPI 3.0 type; replace it with
+	// {"type":"string","format":"date-time"} which is what Elysia actually
+	// serialises Date instances to on the wire.  Use replace (not filter) so
+	// that nullable dates -- t.Nullable(t.Date()) -- keep their {"type":"null"}
+	// sibling instead of collapsing to null-only.
+	if (schema.anyOf && Array.isArray(schema.anyOf)) {
+		const mapped = schema.anyOf.map((item) =>
+			item &&
+			typeof item === 'object' &&
+			(item as Record<string, unknown>).type === 'Date'
+				? { type: 'string', format: 'date-time' }
+				: enumToOpenApi(item)
+		)
+		// Deduplicate: after the replacement above the anyOf may contain two
+		// identical date-time entries because t.Date() already included one.
+		// Compare by canonical (sorted-key) JSON to catch different key orderings.
+		const seen = new Set<string>()
+		const deduped = mapped.filter((item) => {
+			if (!item || typeof item !== 'object') return true
+			const key = JSON.stringify(
+				Object.fromEntries(
+					Object.entries(item as object).sort(([a], [b]) =>
+						a < b ? -1 : a > b ? 1 : 0
+					)
+				)
+			)
+			if (seen.has(key)) return false
+			seen.add(key)
+			return true
+		})
+		if (deduped.length === 1) {
+			const { anyOf, ...rest } = schema
+			return { ...rest, ...(deduped[0] as object) } as T
+		}
+		return { ...schema, anyOf: deduped } as T
+	}
+
+	const normalized: Record<string, unknown> = {}
+	for (const [key, value] of Object.entries(schema))
+		normalized[key] =
+			value && typeof value === 'object'
+				? enumToOpenApi(value as any)
+				: value
+
+	return normalized as T
+}
+
+const toResponseHeaders = (
+	schema: InputSchema['body'],
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
+): Record<string, OpenAPIV3.HeaderObject> | undefined => {
+	const headers =
+		schema && typeof schema === 'object' && !Array.isArray(schema)
+			? (schema as { headers?: TProperties }).headers
+			: undefined
+
+	if (!headers) return
+
+	const entries = Object.entries(headers)
+		.map(
+			([name, headerSchema]) =>
+				[
+					name,
+					{
+						schema: unwrapSchema(
+							headerSchema as any,
+							vendors,
+							'output',
+							openapiVersion
+						)
+					}
+				] as const
+		)
+		.filter(([, header]) => header.schema)
+
+	return entries.length ? Object.fromEntries(entries) : undefined
+}
+
+const stripHeaders = <
+	T extends OpenAPIV3.SchemaObject | OpenAPIV3.ReferenceObject
+>(
+	schema: T
+): T => {
+	const { headers, ...rest } = schema as T & { headers?: unknown }
+	return rest as T
+}
+
+const VOID_RESPONSE_TYPES = new Set(['void', 'null', 'undefined'])
+const PLAIN_RESPONSE_TYPES = new Set([
+	'string',
+	'number',
+	'integer',
+	'boolean'
+])
+
+const toResponseContent = (
+	schema: OpenAPIV3.SchemaObject | OpenAPIV3.ReferenceObject,
+	type: string | undefined,
+	description: string | undefined
+): OpenAPIV3.ResponseObject['content'] | undefined =>
+	VOID_RESPONSE_TYPES.has(type!)
+		? undefined
+		: PLAIN_RESPONSE_TYPES.has(type!)
+			? { 'text/plain': { schema } }
+			: { 'application/json': { schema } }
+
+const toResponseObject = (
+	schema: InputSchema['body'],
+	status: string,
+	definitions: Record<string, unknown>,
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
+): OpenAPIV3.ResponseObject | undefined => {
+	const response = unwrapSchema(schema, vendors, 'output', openapiVersion)
+	if (!response) return
+
+	const responseSchema = stripHeaders(response)
+	// @ts-ignore Must exclude $ref from root options
+	const { type, description } = unwrapReference(responseSchema, definitions)
+	const headers = toResponseHeaders(schema, vendors, openapiVersion)
+	const content = toResponseContent(responseSchema, type, description)
+
+	return {
+		description: description ?? `Response for status ${status}`,
+		...(headers ? { headers } : {}),
+		...(content ? { content } : {})
+	}
+}
+
+const isLikelyStaticFilePath = (path: string) => {
+	const segment = path.split('/').pop()
+	if (!segment) return false
+
+	const dotIndex = segment.lastIndexOf('.')
+	if (dotIndex <= 0 || dotIndex === segment.length - 1) return false
+
+	const extension = segment.slice(dotIndex + 1)
+	return /^[A-Za-z][A-Za-z0-9]{0,15}$/.test(extension)
 }
 
 /**
@@ -660,7 +1123,8 @@ export function toOpenAPISchema(
 	app: AnyElysia,
 	exclude?: ElysiaOpenAPIConfig['exclude'],
 	references?: AdditionalReferences,
-	vendors?: MapJsonSchema
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ) {
 	let {
 		methods: excludeMethods = ['options'],
@@ -676,8 +1140,11 @@ export function toOpenAPISchema(
 			? [exclude.paths]
 			: []
 
+	const ignorePatterns: RegExp[] = excludePaths.filter(
+		(path): path is RegExp => path instanceof RegExp
+	)
+
 	const paths: OpenAPIV3.PathsObject = Object.create(null)
-	// Elysia 2: named model definitions live on `app.models` (was getGlobalDefinitions().type)
 	const definitions = app.models
 
 	if (references) {
@@ -690,21 +1157,28 @@ export function toOpenAPISchema(
 		}
 	}
 
-	const routes = flattenRoutes(app.routes, vendors)
+	// Flatten routes to merge guard() schemas into direct hook properties
+	// This makes guard schemas accessible for OpenAPI documentation generation
+	const routes = flattenRoutes(app.routes, vendors, openapiVersion)
 	for (const route of routes) {
 		if (route.hooks?.detail?.hide) continue
 
 		const method = route.method.toLowerCase()
+		const shouldExclude = ignorePatterns.some((pattern) => {
+			pattern.lastIndex = 0
+			return pattern.test(route.path)
+		})
 
 		if (
-			(excludeStaticFile && route.path.includes('.')) ||
+			(excludeStaticFile && isLikelyStaticFilePath(route.path)) ||
 			excludePaths.includes(route.path) ||
-			excludeMethods.includes(method)
+			excludeMethods.includes(method) ||
+			shouldExclude
 		)
 			continue
 
 		const hooks: InputSchema & {
-			detail: Partial<OpenAPIV3.OperationObject>
+			detail?: Partial<OpenAPIV3.OperationObject>
 		} = route.hooks ?? {}
 
 		if (references?.length)
@@ -783,7 +1257,7 @@ export function toOpenAPISchema(
 		// Handle path parameters
 		if (hooks.params) {
 			const params = unwrapReference(
-				unwrapSchema(hooks.params, vendors),
+				unwrapSchema(hooks.params, vendors, 'input', openapiVersion),
 				definitions
 			)
 
@@ -811,7 +1285,7 @@ export function toOpenAPISchema(
 		// Handle query parameters
 		if (hooks.query) {
 			const query = unwrapReference(
-				unwrapSchema(hooks.query, vendors),
+				unwrapSchema(hooks.query, vendors, 'input', openapiVersion),
 				definitions
 			)
 
@@ -830,7 +1304,7 @@ export function toOpenAPISchema(
 		// Handle header parameters
 		if (hooks.headers) {
 			const headers = unwrapReference(
-				unwrapSchema(hooks.headers, vendors),
+				unwrapSchema(hooks.headers, vendors, 'input', openapiVersion),
 				definitions
 			)
 
@@ -849,7 +1323,7 @@ export function toOpenAPISchema(
 		// Handle cookie parameters
 		if (hooks.cookie) {
 			const cookie = unwrapReference(
-				unwrapSchema(hooks.cookie, vendors),
+				unwrapSchema(hooks.cookie, vendors, 'input', openapiVersion),
 				definitions
 			)
 
@@ -870,7 +1344,12 @@ export function toOpenAPISchema(
 
 		// Handle request body
 		if (hooks.body && method !== 'get' && method !== 'head') {
-			const body = unwrapSchema(hooks.body, vendors)
+			const body = unwrapSchema(
+				hooks.body,
+				vendors,
+				'input',
+				openapiVersion
+			)
 
 			if (body) {
 				// @ts-ignore
@@ -879,20 +1358,21 @@ export function toOpenAPISchema(
 					definitions
 				)
 
-				// @ts-ignore
-				if (hooks.parse) {
+				const parse = (hooks as any).parse
+				if (parse) {
 					const content: Record<
 						string,
 						{ schema: OpenAPIV3.SchemaObject }
 					> = {}
 
-					// @ts-ignore
-					const parsers = hooks.parse as { fn: Function | string }[]
+					const parsers = Array.isArray(parse) ? parse : [parse]
 
 					for (const parser of parsers) {
-						if (typeof parser.fn === 'function') continue
+						const name =
+							typeof parser === 'string' ? parser : parser.fn
+						if (typeof name === 'function') continue
 
-						switch (parser.fn) {
+						switch (name) {
 							case 'text':
 							case 'text/plain':
 								content['text/plain'] = { schema: body }
@@ -913,6 +1393,24 @@ export function toOpenAPISchema(
 							case 'formdata':
 							case 'multipart/form-data':
 								content['multipart/form-data'] = {
+									schema: body
+								}
+								continue
+
+							case 'none':
+								// When parse is "none", include all common content types
+								// since the raw body could be any format
+								content['application/json'] = { schema: body }
+								content['application/x-www-form-urlencoded'] = {
+									schema: body
+								}
+								content['multipart/form-data'] = { schema: body }
+								content['text/plain'] = { schema: body }
+								continue
+
+							case 'arrayBuffer':
+							case 'application/octet-stream':
+								content['application/octet-stream'] = {
 									schema: body
 								}
 								continue
@@ -960,84 +1458,30 @@ export function toOpenAPISchema(
 
 			if (
 				typeof hooks.response === 'object' &&
-				// TypeBox
-				!(hooks.response as TSchema).type &&
-				!(hooks.response as TSchema).$ref &&
+				!isTSchema(hooks.response) &&
 				!(hooks.response as any)['~standard']
 			) {
 				for (let [status, schema] of Object.entries(hooks.response)) {
-					const response = unwrapSchema(schema, vendors, 'output')
+					const response = toResponseObject(
+						schema as InputSchema['body'],
+						status,
+						definitions,
+						vendors,
+						openapiVersion
+					)
 
-					if (!response) continue
-
-					// @ts-ignore Must exclude $ref from root options
-					const { type, description, $ref, ..._options } =
-						unwrapReference(response, definitions)
-
-					operation.responses[status] = {
-						description:
-							description ?? `Response for status ${status}`,
-						content:
-							type === 'void' ||
-							type === 'null' ||
-							type === 'undefined'
-								? ({ type, description } as any)
-								: type === 'string' ||
-									  type === 'number' ||
-									  type === 'integer' ||
-									  type === 'boolean'
-									? {
-											'text/plain': {
-												schema: response
-											}
-										}
-									: {
-											'application/json': {
-												schema: response
-											}
-										}
-					}
+					if (response) operation.responses[status] = response
 				}
 			} else {
-				const response = unwrapSchema(
+				const response = toResponseObject(
 					hooks.response as any,
+					'200',
+					definitions,
 					vendors,
-					'output'
+					openapiVersion
 				)
 
-				if (response) {
-					// @ts-ignore
-					const {
-						type: _type,
-						description,
-						...options
-					} = unwrapReference(response, definitions)
-					const type = _type as string | undefined
-
-					// It's a single schema, default to 200
-					operation.responses['200'] = {
-						description: description ?? `Response for status 200`,
-						content:
-							type === 'void' ||
-							type === 'null' ||
-							type === 'undefined'
-								? ({ type, description } as any)
-								: type === 'string' ||
-									  type === 'number' ||
-									  type === 'integer' ||
-									  type === 'boolean'
-									? {
-											'text/plain': {
-												schema: response
-											}
-										}
-									: {
-											'application/json': {
-												schema: response
-											}
-										}
-					}
-				}
+				if (response) operation.responses['200'] = response
 			}
 		}
 
@@ -1051,7 +1495,6 @@ export function toOpenAPISchema(
 
 			const current = paths[path] as any
 
-			// Elysia 2 reports `.all` routes with method '*' (was 'ALL'/'all')
 			if (method !== 'all' && method !== '*') {
 				current[method] = {
 					...operation,
@@ -1083,13 +1526,16 @@ export function toOpenAPISchema(
 
 	if (definitions)
 		for (const [name, schema] of Object.entries(definitions)) {
-			const jsonSchema = unwrapSchema(schema as any, vendors) as
+			const jsonSchema = unwrapSchema(
+				schema as any,
+				vendors,
+				'input',
+				openapiVersion
+			) as
 				| OpenAPIV3.SchemaObject
 				| undefined
 
 			if (jsonSchema)
-				// Elysia 2 stores a model's $id as the bare name; OpenAPI
-				// components reference the canonical `#/components/schemas/...` form
 				schemas[name] = {
 					...jsonSchema,
 					$id: `#/components/schemas/${name}`
@@ -1104,10 +1550,13 @@ export function toOpenAPISchema(
 	} satisfies Pick<OpenAPIV3.Document, 'paths' | 'components'>
 }
 
-export const withHeaders = <const T, const H>(
-	schema: T,
-	headers: H
-): T & { headers: H } =>
-	Object.assign(schema as object, {
-		headers
-	}) as T & { headers: H }
+export const withHeaders = <const S, const H>(schema: S, headers: H) => {
+	const clone = Object.create(
+		Object.getPrototypeOf(schema as object),
+		Object.getOwnPropertyDescriptors(schema as object)
+	) as S & { headers: H }
+
+	clone.headers = headers
+
+	return clone
+}
