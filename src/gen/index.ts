@@ -2,8 +2,7 @@ import { TypeBox } from '@sinclair/typemap'
 import type { AdditionalReference } from '../types'
 
 const matchRoute = /: Elysia<(.*)>/gs
-// Only match standalone numeric keys (not digits embedded in identifiers like v4)
-const numberKey = /(?<=^|[{;,\s])(\d+):/g
+const propertyKey = /([A-Za-z_]\w*|\d+):/g
 
 export interface OpenAPIGeneratorOptions {
 	/**
@@ -434,7 +433,7 @@ export function declarationToJSONSchema(
 
 	// Treaty is a collection of { ... } & { ... } & { ... }
 	for (const route of extractRootObjects(
-		flattened.replace(numberKey, '"$1":')
+		declaration.replace(propertyKey, '"$1":')
 	)) {
 		let processed = route.replaceAll(/readonly/g, '')
 
@@ -631,6 +630,7 @@ export const fromTypes =
 					: ''
 
 				let distDir = join(tmpRoot, 'dist')
+				let rootDir = projectRoot
 
 				// Convert Windows path to Unix for TypeScript CLI
 				if (
@@ -640,27 +640,28 @@ export const fromTypes =
 					extendsRef = extendsRef.replace(/\\/g, '/')
 					src = src.replace(/\\/g, '/')
 					distDir = distDir.replace(/\\/g, '/')
+					rootDir = rootDir.replace(/\\/g, '/')
+				}
+
+				const resolvedCompilerOptions = {
+					lib: ['ESNext'],
+					module: 'ESNext',
+					noEmit: false,
+					declaration: true,
+					emitDeclarationOnly: true,
+					moduleResolution: 'bundler',
+					skipLibCheck: true,
+					skipDefaultLibCheck: true,
+					rootDir,
+					outDir: distDir,
+					...compilerOptions
 				}
 
 				fs.writeFileSync(
 					join(tmpRoot, 'tsconfig.json'),
 					`{
 	${extendsRef}
-	"compilerOptions": ${
-		compilerOptions
-			? JSON.stringify(compilerOptions)
-			: `{
-	"lib": ["ESNext"],
-	"module": "ESNext",
-	"noEmit": false,
-	"declaration": true,
-	"emitDeclarationOnly": true,
-	"moduleResolution": "bundler",
-	"skipLibCheck": true,
-	"skipDefaultLibCheck": true,
-	"outDir": "${distDir}"
-}`
-	},
+	"compilerOptions": ${JSON.stringify(resolvedCompilerOptions)},
 	"include": ["${src}"]
 }`
 				)
