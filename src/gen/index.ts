@@ -2,7 +2,7 @@ import { TypeBox } from '@sinclair/typemap'
 import type { AdditionalReference } from '../types'
 
 const matchRoute = /: Elysia<(.*)>/gs
-const propertyKey = /([A-Za-z_]\w*|\d+):/g
+const numberKey = /(^|[{;,\s])(\d+):/g
 
 export interface OpenAPIGeneratorOptions {
 	/**
@@ -433,7 +433,7 @@ export function declarationToJSONSchema(
 
 	// Treaty is a collection of { ... } & { ... } & { ... }
 	for (const route of extractRootObjects(
-		declaration.replace(propertyKey, '"$1":')
+		declaration.replace(numberKey, '$1"$2":')
 	)) {
 		let processed = route.replaceAll(/readonly/g, '')
 
