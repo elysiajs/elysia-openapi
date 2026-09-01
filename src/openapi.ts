@@ -978,6 +978,13 @@ export function toOpenAPISchema(
 									schema: body
 								}
 								continue
+
+							case 'arrayBuffer':
+							case 'application/octet-stream':
+								content['application/octet-stream'] = {
+									schema: body
+								}
+								continue
 						}
 					}
 
