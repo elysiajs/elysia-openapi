@@ -1,3 +1,14 @@
+# 1.4.16 - 2 Sep 2026
+Improvement:
+- [#349](https://github.com/elysiajs/elysia-openapi/pull/349) add support for regex path scope
+- [#348](https://github.com/elysiajs/elysia-openapi/pull/348) add support for openapi 3.1
+- [#343](https://github.com/elysiajs/elysia-openapi/pull/343) use openapi 3.1 date for spec
+- [#342](https://github.com/elysiajs/elysia-openapi/pull/342) preserve fromTypes compiler defaults
+- [#341](https://github.com/elysiajs/elysia-openapi/pull/341) document arrayBuffer bodies
+- [#334](https://github.com/elysiajs/elysia-openapi/pull/334) add headers from withHeaders to OpenAPI
+- [#329](https://github.com/elysiajs/elysia-openapi/pull/329) improve type-gen stability
+- [#290](https://github.com/elysiajs/elysia-openapi/pull/290) add type-gen support for alphanumeric paths
+
 # 1.4.15 - 24 Apr 2026
 Chore:
 - Published under @elysia scope
