@@ -755,6 +755,29 @@ describe('OpenAPI > toOpenAPISchema', () => {
 		})
 	})
 
+	it('normalizes referenced query schemas for the configured version', () => {
+		const model = new Elysia().model(
+			'query',
+			t.Object({
+				value: t.Union([t.String(), t.Null()])
+			})
+		)
+		const app = new Elysia().use(model).get('/user', {
+			query: 'query'
+		}, () => 'hello')
+
+		const schema = JSON.parse(
+			JSON.stringify(
+				toOpenAPISchema(app, undefined, undefined, undefined, '3.0.3')
+			)
+		)
+
+		expect(schema.paths['/user'].get.parameters[0].schema).toEqual({
+			type: 'string',
+			nullable: true
+		})
+	})
+
 	it('inline reference cookie', () => {
 		const model = new Elysia().model(
 			'cookie',

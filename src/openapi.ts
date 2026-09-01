@@ -526,7 +526,8 @@ const flattenRoutes = (
 
 const unwrapReference = <T extends OpenAPIV3.SchemaObject | undefined>(
 	schema: T,
-	definitions: Record<string, unknown>
+	definitions: Record<string, unknown>,
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ):
 	| Exclude<T, OpenAPIV3.SchemaObject>
 	| (Omit<NonNullable<T>, 'type'> & {
@@ -540,7 +541,7 @@ const unwrapReference = <T extends OpenAPIV3.SchemaObject | undefined>(
 	const name = ref.slice(ref.lastIndexOf('/') + 1)
 	if (ref && definitions[name]) schema = definitions[name] as T
 
-	return enumToOpenApi(schema) as any
+	return nullToOpenApi(enumToOpenApi(schema), openapiVersion) as any
 }
 
 export const unwrapSchema = (
@@ -1092,7 +1093,11 @@ const toResponseObject = (
 
 	const responseSchema = stripHeaders(response)
 	// @ts-ignore Must exclude $ref from root options
-	const { type, description } = unwrapReference(responseSchema, definitions)
+	const { type, description } = unwrapReference(
+		responseSchema,
+		definitions,
+		openapiVersion
+	)
 	const headers = toResponseHeaders(schema, vendors, openapiVersion)
 	const content = toResponseContent(responseSchema, type, description)
 
@@ -1258,7 +1263,8 @@ export function toOpenAPISchema(
 		if (hooks.params) {
 			const params = unwrapReference(
 				unwrapSchema(hooks.params, vendors, 'input', openapiVersion),
-				definitions
+				definitions,
+				openapiVersion
 			)
 
 			if (params && params.type === 'object' && params.properties)
@@ -1286,7 +1292,8 @@ export function toOpenAPISchema(
 		if (hooks.query) {
 			const query = unwrapReference(
 				unwrapSchema(hooks.query, vendors, 'input', openapiVersion),
-				definitions
+				definitions,
+				openapiVersion
 			)
 
 			if (query && query.type === 'object' && query.properties) {
@@ -1305,7 +1312,8 @@ export function toOpenAPISchema(
 		if (hooks.headers) {
 			const headers = unwrapReference(
 				unwrapSchema(hooks.headers, vendors, 'input', openapiVersion),
-				definitions
+				definitions,
+				openapiVersion
 			)
 
 			if (headers && headers.type === 'object' && headers.properties) {
@@ -1324,7 +1332,8 @@ export function toOpenAPISchema(
 		if (hooks.cookie) {
 			const cookie = unwrapReference(
 				unwrapSchema(hooks.cookie, vendors, 'input', openapiVersion),
-				definitions
+				definitions,
+				openapiVersion
 			)
 
 			if (cookie && cookie.type === 'object' && cookie.properties) {
@@ -1355,7 +1364,8 @@ export function toOpenAPISchema(
 				// @ts-ignore
 				const { type, description, $ref, ...options } = unwrapReference(
 					body,
-					definitions
+					definitions,
+					openapiVersion
 				)
 
 				const parse = (hooks as any).parse
