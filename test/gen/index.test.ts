@@ -503,7 +503,9 @@ describe('Gen > Type Gen', () => {
 					},
 					query: {},
 					response: {
-						'204': {},
+						'204': {
+							type: 'void'
+						},
 						'422': {
 							properties: {
 								expected: {
@@ -890,9 +892,7 @@ describe('Gen > inlineTypeReferences', () => {
 			User: '{ name: string; }',
 			ErrorBody: '{ message: string; }'
 		})
-		expect(result).toBe(
-			'200: { name: string; }; 404: { message: string; }'
-		)
+		expect(result).toBe('200: { name: string; }; 404: { message: string; }')
 	})
 
 	it('does not replace partial matches inside other identifiers', () => {

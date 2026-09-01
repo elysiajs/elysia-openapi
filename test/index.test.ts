@@ -23,8 +23,30 @@ describe('Swagger', () => {
 		await app.modules
 
 		const res = await app.handle(req('/openapi/json')).then((x) => x.json())
-		expect(res.openapi).toBe('3.0.3')
+		expect(res.openapi).toBe('3.1.2')
 		await SwaggerParser.validate(res).catch((err) => fail(err))
+	})
+
+	it('emits OpenAPI 3.0 nullable schemas when configured', async () => {
+		const app = new Elysia()
+			.use(openapi({ openapiVersion: '3.0.3' }))
+			.get('/nullable', () => null, {
+				response: t.Union([t.String(), t.Null()])
+			})
+
+		await app.modules
+
+		const document = await app
+			.handle(req('/openapi/json'))
+			.then((response) => response.json())
+		const schema =
+			document.paths['/nullable'].get.responses['200'].content[
+				'text/plain'
+			].schema
+
+		expect(document.openapi).toBe('3.0.3')
+		expect(schema).toMatchObject({ type: 'string', nullable: true })
+		await SwaggerParser.validate(document).catch((error) => fail(error))
 	})
 
 	it('use custom Swagger version', async () => {

@@ -8,27 +8,21 @@ import type {
 } from 'elysia/types'
 
 import type { OpenAPIV3 } from 'openapi-types'
-import {
-	Kind,
-	TAnySchema,
-	type TObject
-} from '@sinclair/typebox'
+import { Kind, TAnySchema, type TObject } from '@sinclair/typebox'
 
 import type {
 	AdditionalReference,
 	AdditionalReferences,
 	ElysiaOpenAPIConfig,
-	MapJsonSchema
+	MapJsonSchema,
+	OpenAPIVersion
 } from './types'
 
 export const capitalize = (word: string) =>
 	word.charAt(0).toUpperCase() + word.slice(1)
 
-const toRef = (name: string) => t.Ref(
-	name.startsWith('#/')
-		? name
-		: `#/components/schemas/${name}`
-)
+const toRef = (name: string) =>
+	t.Ref(name.startsWith('#/') ? name : `#/components/schemas/${name}`)
 
 const toOperationId = (method: string, paths: string) => {
 	let operationId = method.toLowerCase()
@@ -248,7 +242,8 @@ const normalizeSchemaReference = (
 const mergeSchemaProperty = (
 	existing: TSchema | string | undefined,
 	incoming: TSchema | string | undefined,
-	vendors?: MapJsonSchema
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ): TSchema | string | undefined => {
 	if (!existing) return incoming
 	if (!incoming) return existing
@@ -261,10 +256,20 @@ const mergeSchemaProperty = (
 	if (!incomingSchema) return existing
 
 	if (!isTSchema(incomingSchema) && incomingSchema['~standard'])
-		incomingSchema = unwrapSchema(incomingSchema, vendors) as any
+		incomingSchema = unwrapSchema(
+			incomingSchema,
+			vendors,
+			'input',
+			openapiVersion
+		) as any
 
 	if (!isTSchema(existingSchema) && existingSchema['~standard'])
-		existingSchema = unwrapSchema(existingSchema, vendors) as any
+		existingSchema = unwrapSchema(
+			existingSchema,
+			vendors,
+			'input',
+			openapiVersion
+		) as any
 
 	if (!incomingSchema) return existingSchema
 	if (!existingSchema) return incomingSchema
@@ -294,7 +299,8 @@ type ResponseSchema =
 
 const unwrapResponseSchema = (
 	schema: ResponseSchema,
-	vendors?: MapJsonSchema
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ) =>
 	typeof schema === 'string'
 		? normalizeSchemaReference(schema)
@@ -304,7 +310,12 @@ const unwrapResponseSchema = (
 				? schema
 				: // @ts-ignore
 					schema['~standard']
-					? unwrapSchema(schema as any, vendors, 'output')
+					? unwrapSchema(
+							schema as any,
+							vendors,
+							'output',
+							openapiVersion
+						)
 					: Object.fromEntries(
 							Object.entries(schema).map(([status, schema]) => [
 								status,
@@ -315,7 +326,8 @@ const unwrapResponseSchema = (
 										: unwrapSchema(
 												schema as any,
 												vendors,
-												'output'
+												'output',
+												openapiVersion
 											)
 							])
 						)
@@ -326,14 +338,15 @@ const unwrapResponseSchema = (
 const mergeResponseSchema = (
 	_existing: ResponseSchema,
 	_incoming: ResponseSchema,
-	vendors?: MapJsonSchema
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ): TSchema | { [status: number]: TSchema | string } | string | undefined => {
 	if (!_existing) return _incoming
 	if (!_incoming) return _existing
 
 	// Normalize string references to TRef nodes
-	let existing = unwrapResponseSchema(_existing, vendors)
-	let incoming = unwrapResponseSchema(_incoming, vendors)
+	let existing = unwrapResponseSchema(_existing, vendors, openapiVersion)
+	let incoming = unwrapResponseSchema(_incoming, vendors, openapiVersion)
 
 	if (!existing && !incoming) return undefined
 	if (incoming && !existing) return incoming as any
@@ -363,7 +376,8 @@ const mergeResponseSchema = (
 			schema[status] = mergeSchemaProperty(
 				existingSchema as TSchema,
 				incomingSchema as TSchema,
-				vendors
+				vendors,
+				openapiVersion
 			)
 		else if (existingSchema) schema[status] = existingSchema
 		else if (incomingSchema) schema[status] = incomingSchema
@@ -389,7 +403,8 @@ const mergeStandaloneValidators = (
 	> & {
 		standaloneValidator?: InputSchema[]
 	} & InputSchema,
-	vendors?: MapJsonSchema
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ) => {
 	const merged = { ...hooks }
 
@@ -401,42 +416,48 @@ const mergeStandaloneValidators = (
 			merged.body = mergeSchemaProperty(
 				merged.body as TSchema,
 				validator.body as TSchema,
-				vendors
+				vendors,
+				openapiVersion
 			)
 
 		if (validator.headers)
 			merged.headers = mergeSchemaProperty(
 				merged.headers as TSchema,
 				validator.headers as TSchema,
-				vendors
+				vendors,
+				openapiVersion
 			)
 
 		if (validator.query)
 			merged.query = mergeSchemaProperty(
 				merged.query as TSchema,
 				validator.query as TSchema,
-				vendors
+				vendors,
+				openapiVersion
 			)
 
 		if (validator.params)
 			merged.params = mergeSchemaProperty(
 				merged.params as TSchema,
 				validator.params as TSchema,
-				vendors
+				vendors,
+				openapiVersion
 			)
 
 		if (validator.cookie)
 			merged.cookie = mergeSchemaProperty(
 				merged.cookie as TSchema,
 				validator.cookie as TSchema,
-				vendors
+				vendors,
+				openapiVersion
 			)
 
 		if (validator.response)
 			merged.response = mergeResponseSchema(
 				merged.response as TSchema,
 				validator.response as TSchema,
-				vendors
+				vendors,
+				openapiVersion
 			)
 	}
 
@@ -475,13 +496,21 @@ const mergeStandaloneValidators = (
  * This makes guard() schemas accessible in the OpenAPI spec by converting
  * the standaloneValidator array into direct hook properties.
  */
-const flattenRoutes = (routes: any[], vendors?: MapJsonSchema): any[] =>
+const flattenRoutes = (
+	routes: any[],
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
+): any[] =>
 	routes.map((route) => {
 		if (!route.hooks?.standaloneValidator?.length) return route
 
 		return {
 			...route,
-			hooks: mergeStandaloneValidators(route.hooks, vendors)
+			hooks: mergeStandaloneValidators(
+				route.hooks,
+				vendors,
+				openapiVersion
+			)
 		}
 	})
 
@@ -489,7 +518,8 @@ const flattenRoutes = (routes: any[], vendors?: MapJsonSchema): any[] =>
 
 const unwrapReference = <T extends OpenAPIV3.SchemaObject | undefined>(
 	schema: T,
-	definitions: Record<string, unknown>
+	definitions: Record<string, unknown>,
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ):
 	| Exclude<T, OpenAPIV3.SchemaObject>
 	| (Omit<NonNullable<T>, 'type'> & {
@@ -503,18 +533,20 @@ const unwrapReference = <T extends OpenAPIV3.SchemaObject | undefined>(
 	const name = ref.slice(ref.lastIndexOf('/') + 1)
 	if (ref && definitions[name]) schema = definitions[name] as T
 
-	return enumToOpenApi(schema) as any
+	return nullToOpenApi(enumToOpenApi(schema), openapiVersion) as any
 }
 
 export const unwrapSchema = (
 	schema: InputSchema['body'],
 	mapJsonSchema?: MapJsonSchema,
-	io: 'input' | 'output' = 'input'
+	io: 'input' | 'output' = 'input',
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ): OpenAPIV3.SchemaObject | undefined => {
 	if (!schema) return
 
 	if (typeof schema === 'string') schema = toRef(schema)
-	if (Kind in schema) return enumToOpenApi(schema)
+	if (Kind in schema)
+		return nullToOpenApi(enumToOpenApi(schema), openapiVersion)
 
 	// Already unwrapped by merging standalone validators
 	if (
@@ -522,26 +554,36 @@ export const unwrapSchema = (
 		// @ts-ignore
 		(schema.$schema || schema.type || schema.properties || schema.items)
 	)
-		return schema as OpenAPIV3.SchemaObject
+		return nullToOpenApi(schema as OpenAPIV3.SchemaObject, openapiVersion)
 
 	if (!schema?.['~standard']) return
 
-	// @ts-ignore
-	const vendor = schema['~standard'].vendor
+	const standard = schema['~standard'] as any
+	const vendor = standard.vendor
 
 	try {
+		const jsonSchemaTarget = openapiVersion.startsWith('3.0.')
+			? 'draft-07'
+			: 'draft-2020-12'
+
 		if (
 			mapJsonSchema?.[vendor] &&
 			typeof mapJsonSchema[vendor] === 'function'
 		)
-			return enumToOpenApi(mapJsonSchema[vendor](schema))
+			return nullToOpenApi(
+				enumToOpenApi(mapJsonSchema[vendor](schema)),
+				openapiVersion
+			)
 
-		// @ts-ignore
-		if (schema['~standard']?.jsonSchema?.[io])
-			// @ts-ignore
-			return enumToOpenApi(schema['~standard'].jsonSchema[io]({
-				target: 'draft-2020-12'
-			}))
+		if (standard.jsonSchema?.[io])
+			return nullToOpenApi(
+				enumToOpenApi(
+					standard.jsonSchema[io]({
+						target: jsonSchemaTarget
+					})
+				),
+				openapiVersion
+			)
 
 		switch (vendor) {
 			case 'zod':
@@ -598,12 +640,17 @@ export const unwrapSchema = (
 		}
 
 		if (vendor === 'arktype')
-			// @ts-ignore
-			return enumToOpenApi(schema?.toJsonSchema?.())
+			return nullToOpenApi(
+				enumToOpenApi((schema as any).toJsonSchema?.()),
+				openapiVersion
+			)
 
-		return enumToOpenApi(
-			// @ts-ignore
-			schema.toJSONSchema?.() ?? schema?.toJsonSchema?.()
+		return nullToOpenApi(
+			enumToOpenApi(
+				// @ts-ignore
+				schema.toJSONSchema?.() ?? schema?.toJsonSchema?.()
+			),
+			openapiVersion
 		)
 	} catch (error) {
 		console.warn(error)
@@ -702,9 +749,117 @@ export const enumToOpenApi = <
 	return schema as T
 }
 
+const SCHEMA_MAP_KEYS = new Set([
+	'properties',
+	'patternProperties',
+	'$defs',
+	'definitions',
+	'dependentSchemas'
+])
+const SCHEMA_ARRAY_KEYS = new Set(['allOf', 'anyOf', 'oneOf', 'prefixItems'])
+const SCHEMA_VALUE_KEYS = new Set([
+	'items',
+	'additionalProperties',
+	'unevaluatedProperties',
+	'contains',
+	'not',
+	'if',
+	'then',
+	'else',
+	'propertyNames'
+])
+
+const isSchemaObject = (value: unknown): value is Record<string, unknown> =>
+	!!value && typeof value === 'object' && !Array.isArray(value)
+
+export const nullToOpenApi = <T>(
+	schema: T,
+	openapiVersion: OpenAPIVersion
+): T => {
+	const normalize = (value: unknown): unknown => {
+		if (Array.isArray(value)) return value.map(normalize)
+		if (!isSchemaObject(value)) return value
+
+		const normalized = { ...value }
+		const isOpenAPI30 = openapiVersion.startsWith('3.0.')
+
+		for (const unionKey of ['anyOf', 'oneOf'] as const) {
+			const union = normalized[unionKey]
+			if (!Array.isArray(union)) continue
+
+			const nonNull = union.filter(
+				(item) => !isSchemaObject(item) || item.type !== 'null'
+			)
+			if (nonNull.length === union.length) continue
+
+			const normalizedNonNull = nonNull.map(normalize)
+			if (isOpenAPI30) {
+				delete normalized[unionKey]
+				if (
+					normalizedNonNull.length === 1 &&
+					isSchemaObject(normalizedNonNull[0])
+				)
+					Object.assign(normalized, normalizedNonNull[0])
+				else if (normalizedNonNull.length)
+					normalized[unionKey] = normalizedNonNull
+				normalized.nullable = true
+			} else if (
+				normalizedNonNull.length === 1 &&
+				isSchemaObject(normalizedNonNull[0]) &&
+				typeof normalizedNonNull[0].type === 'string'
+			) {
+				delete normalized[unionKey]
+				Object.assign(normalized, normalizedNonNull[0])
+				normalized.type = [normalizedNonNull[0].type, 'null']
+			} else normalized[unionKey] = union.map(normalize)
+		}
+
+		if (isOpenAPI30 && normalized.type === 'null') {
+			delete normalized.type
+			normalized.nullable = true
+		} else if (
+			isOpenAPI30 &&
+			Array.isArray(normalized.type) &&
+			normalized.type.includes('null')
+		) {
+			const types = normalized.type.filter((type) => type !== 'null')
+			normalized.nullable = true
+			if (types.length === 1) normalized.type = types[0]
+			else if (types.length) normalized.type = types
+			else delete normalized.type
+		}
+
+		for (const [key, nested] of Object.entries(normalized)) {
+			if (SCHEMA_MAP_KEYS.has(key) && isSchemaObject(nested))
+				normalized[key] = Object.fromEntries(
+					Object.entries(nested).map(([name, child]) => [
+						name,
+						normalize(child)
+					])
+				)
+			else if (SCHEMA_ARRAY_KEYS.has(key) && Array.isArray(nested))
+				normalized[key] = nested.map(normalize)
+			else if (SCHEMA_VALUE_KEYS.has(key) && isSchemaObject(nested))
+				normalized[key] = normalize(nested)
+			else if (key === 'dependencies' && isSchemaObject(nested))
+				normalized[key] = Object.fromEntries(
+					Object.entries(nested).map(([name, child]) => [
+						name,
+						isSchemaObject(child) ? normalize(child) : child
+					])
+				)
+		}
+
+		return normalized
+	}
+
+	return normalize(schema) as T
+}
+
 const toResponseHeaders = (
 	schema: InputSchema['body'],
-	vendors?: MapJsonSchema
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ): Record<string, OpenAPIV3.HeaderObject> | undefined => {
 	if (
 		!schema ||
@@ -721,7 +876,14 @@ const toResponseHeaders = (
 			([name, hs]) =>
 				[
 					name,
-					{ schema: unwrapSchema(hs as any, vendors, 'output') }
+					{
+						schema: unwrapSchema(
+							hs as any,
+							vendors,
+							'output',
+							openapiVersion
+						)
+					}
 				] as const
 		)
 		.filter(([, v]) => v.schema)
@@ -754,16 +916,21 @@ const toResponseObject = (
 	schema: InputSchema['body'],
 	status: string,
 	definitions: Record<string, unknown>,
-	vendors?: MapJsonSchema
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ): OpenAPIV3.ResponseObject | undefined => {
-	const response = unwrapSchema(schema, vendors, 'output')
+	const response = unwrapSchema(schema, vendors, 'output', openapiVersion)
 	if (!response) return
 
 	const responseSchema = stripHeaders(response)
 
 	// @ts-ignore Must exclude $ref from root options
-	const { type, description } = unwrapReference(responseSchema, definitions)
-	const headers = toResponseHeaders(schema, vendors)
+	const { type, description } = unwrapReference(
+		responseSchema,
+		definitions,
+		openapiVersion
+	)
+	const headers = toResponseHeaders(schema, vendors, openapiVersion)
 
 	return {
 		description: description ?? `Response for status ${status}`,
@@ -773,7 +940,7 @@ const toResponseObject = (
 }
 
 /**
- * Converts Elysia routes to OpenAPI 3.0.3 paths schema
+ * Converts Elysia routes to OpenAPI paths schema
  * @param routes Array of Elysia route objects
  * @returns OpenAPI paths object
  */
@@ -781,7 +948,8 @@ export function toOpenAPISchema(
 	app: AnyElysia,
 	exclude?: ElysiaOpenAPIConfig['exclude'],
 	references?: AdditionalReferences,
-	vendors?: MapJsonSchema
+	vendors?: MapJsonSchema,
+	openapiVersion: OpenAPIVersion = '3.1.2'
 ) {
 	let {
 		methods: excludeMethods = ['options'],
@@ -814,7 +982,7 @@ export function toOpenAPISchema(
 	// Flatten routes to merge guard() schemas into direct hook properties
 	// This makes guard schemas accessible for OpenAPI documentation generation
 	// @ts-ignore private property
-	const routes = flattenRoutes(app.getGlobalRoutes(), vendors)
+	const routes = flattenRoutes(app.getGlobalRoutes(), vendors, openapiVersion)
 	for (const route of routes) {
 		if (route.hooks?.detail?.hide) continue
 
@@ -827,7 +995,8 @@ export function toOpenAPISchema(
 					exclusion.lastIndex = 0
 					return exclusion.test(route.path)
 				}
-				if (typeof exclusion === 'string') return exclusion === route.path
+				if (typeof exclusion === 'string')
+					return exclusion === route.path
 				return false
 			}) ||
 			excludeMethods.includes(method)
@@ -914,8 +1083,9 @@ export function toOpenAPISchema(
 		// Handle path parameters
 		if (hooks.params) {
 			const params = unwrapReference(
-				unwrapSchema(hooks.params, vendors),
-				definitions
+				unwrapSchema(hooks.params, vendors, 'input', openapiVersion),
+				definitions,
+				openapiVersion
 			)
 
 			if (params && params.type === 'object' && params.properties)
@@ -942,8 +1112,9 @@ export function toOpenAPISchema(
 		// Handle query parameters
 		if (hooks.query) {
 			const query = unwrapReference(
-				unwrapSchema(hooks.query, vendors),
-				definitions
+				unwrapSchema(hooks.query, vendors, 'input', openapiVersion),
+				definitions,
+				openapiVersion
 			)
 
 			if (query && query.type === 'object' && query.properties) {
@@ -961,8 +1132,9 @@ export function toOpenAPISchema(
 		// Handle header parameters
 		if (hooks.headers) {
 			const headers = unwrapReference(
-				unwrapSchema(hooks.headers, vendors),
-				definitions
+				unwrapSchema(hooks.headers, vendors, 'input', openapiVersion),
+				definitions,
+				openapiVersion
 			)
 
 			if (headers && headers.type === 'object' && headers.properties) {
@@ -980,8 +1152,9 @@ export function toOpenAPISchema(
 		// Handle cookie parameters
 		if (hooks.cookie) {
 			const cookie = unwrapReference(
-				unwrapSchema(hooks.cookie, vendors),
-				definitions
+				unwrapSchema(hooks.cookie, vendors, 'input', openapiVersion),
+				definitions,
+				openapiVersion
 			)
 
 			if (cookie && cookie.type === 'object' && cookie.properties) {
@@ -1001,13 +1174,19 @@ export function toOpenAPISchema(
 
 		// Handle request body
 		if (hooks.body && method !== 'get' && method !== 'head') {
-			const body = unwrapSchema(hooks.body, vendors)
+			const body = unwrapSchema(
+				hooks.body,
+				vendors,
+				'input',
+				openapiVersion
+			)
 
 			if (body) {
 				// @ts-ignore
 				const { type, description, $ref, ...options } = unwrapReference(
 					body,
-					definitions
+					definitions,
+					openapiVersion
 				)
 
 				// @ts-ignore
@@ -1099,6 +1278,7 @@ export function toOpenAPISchema(
 			if (
 				typeof hooks.response === 'object' &&
 				// TypeBox
+				!(Kind in (hooks.response as object)) &&
 				!(hooks.response as TSchema).type &&
 				!(hooks.response as TSchema).$ref &&
 				!(hooks.response as any)['~standard']
@@ -1108,7 +1288,8 @@ export function toOpenAPISchema(
 						schema,
 						status,
 						definitions,
-						vendors
+						vendors,
+						openapiVersion
 					)
 
 					if (response) operation.responses[status] = response
@@ -1118,7 +1299,8 @@ export function toOpenAPISchema(
 					hooks.response as InputSchema['body'],
 					'200',
 					definitions,
-					vendors
+					vendors,
+					openapiVersion
 				)
 
 				if (response) operation.responses['200'] = response
@@ -1166,9 +1348,12 @@ export function toOpenAPISchema(
 
 	if (definitions)
 		for (const [name, schema] of Object.entries(definitions)) {
-			const jsonSchema = unwrapSchema(schema as any, vendors) as
-				| OpenAPIV3.SchemaObject
-				| undefined
+			const jsonSchema = unwrapSchema(
+				schema as any,
+				vendors,
+				'input',
+				openapiVersion
+			) as OpenAPIV3.SchemaObject | undefined
 
 			if (jsonSchema) schemas[name] = jsonSchema
 		}
