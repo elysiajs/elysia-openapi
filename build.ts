@@ -12,6 +12,9 @@ await build({
 	minify: false,
 	unbundle: true,
 	dts: true,
+	deps: {
+		neverBundle: true
+	},
 	outExtensions(c) {
 		return {
 			dts: '.d.ts',
