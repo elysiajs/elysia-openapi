@@ -3,6 +3,7 @@ import { AnyElysia, Elysia, t } from 'elysia'
 
 import { toOpenAPISchema } from '../../src/openapi'
 import { z } from 'zod'
+import { type } from 'arktype'
 
 const is = <T extends AnyElysia>(
 	app: T,
@@ -1275,5 +1276,130 @@ describe('OpenAPI > toOpenAPISchema', () => {
 				}
 			}
 		})
+	})
+})
+
+describe('OpenAPI > ArkType', () => {
+	// ArkType emits the JSON Schema `$schema` dialect on each converted schema.
+	const $schema = 'https://json-schema.org/draft/2020-12/schema'
+
+	// Body schemas are mirrored across every accepted content type.
+	const body = (s: Record<string, unknown>) => ({
+		content: {
+			'application/json': { schema: s },
+			'application/x-www-form-urlencoded': { schema: s },
+			'multipart/form-data': { schema: s }
+		},
+		required: true
+	})
+
+	const doc = (app: AnyElysia) =>
+		JSON.parse(JSON.stringify(toOpenAPISchema(app)))
+
+	// https://github.com/elysiajs/elysia/issues/1844
+	it('degrades a predicate (string.date) instead of dropping the schema', () => {
+		const app = new Elysia().post('/bug', () => 'ok', {
+			body: type({ date: 'string.date' })
+		})
+
+		is(app, {
+			components: { schemas: {} },
+			paths: {
+				'/bug': {
+					post: {
+						operationId: 'postBug',
+						requestBody: body({
+							$schema,
+							type: 'object',
+							properties: { date: { type: 'string' } },
+							required: ['date']
+						})
+					}
+				}
+			}
+		})
+	})
+
+	it('maps a Date to string/date-time', () => {
+		const app = new Elysia().post('/at', () => 'ok', {
+			body: type({ at: 'Date' })
+		})
+
+		is(app, {
+			components: { schemas: {} },
+			paths: {
+				'/at': {
+					post: {
+						operationId: 'postAt',
+						requestBody: body({
+							$schema,
+							type: 'object',
+							properties: {
+								at: { type: 'string', format: 'date-time' }
+							},
+							required: ['at']
+						})
+					}
+				}
+			}
+		})
+	})
+
+	it('leaves a predicate-free schema unchanged', () => {
+		const app = new Elysia().post('/plain', () => 'ok', {
+			body: type({ name: 'string', age: 'number' })
+		})
+
+		expect(
+			doc(app).paths['/plain'].post.requestBody.content[
+				'application/json'
+			].schema
+		).toEqual({
+			$schema,
+			type: 'object',
+			properties: { name: { type: 'string' }, age: { type: 'number' } },
+			required: ['age', 'name']
+		})
+	})
+
+	// Morphs (e.g. `string.date.parse`) previously threw `code: "morph"` and
+	// dropped the schema; the `default` fallback degrades them to the base type.
+	it('degrades a morph (string.date.parse) instead of dropping the schema', () => {
+		const app = new Elysia().post('/morph', () => 'ok', {
+			body: type({ when: 'string.date.parse' })
+		})
+
+		const op = doc(app).paths['/morph'].post
+
+		expect(op.requestBody).toBeDefined()
+		expect(
+			op.requestBody.content['application/json'].schema.properties.when
+		).toEqual({ type: 'string' })
+	})
+
+	it('lets a user-supplied mapJsonSchema.arktype override win', () => {
+		const app = new Elysia().post('/override', () => 'ok', {
+			body: type({ date: 'string.date' })
+		})
+
+		const override = {
+			type: 'object',
+			properties: { date: { type: 'string', format: 'overridden' } },
+			required: ['date']
+		}
+
+		const result = JSON.parse(
+			JSON.stringify(
+				toOpenAPISchema(app, undefined, undefined, {
+					arktype: () => override
+				})
+			)
+		)
+
+		expect(
+			result.paths['/override'].post.requestBody.content[
+				'application/json'
+			].schema
+		).toEqual(override)
 	})
 })

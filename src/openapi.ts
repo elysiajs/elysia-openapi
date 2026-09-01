@@ -537,6 +537,27 @@ export const unwrapSchema = (
 		)
 			return enumToOpenApi(mapJsonSchema[vendor](schema))
 
+		// ============================================================================
+		// ArkType toJsonSchema fallback (predicates, morphs, Date, etc.)
+		// ============================================================================
+		if (vendor === 'arktype')
+			return enumToOpenApi(
+				// @ts-ignore
+				schema?.toJsonSchema?.({
+					fallback: {
+						// real Date types -> string with date-time format
+						date: (ctx: { base: Record<string, unknown> }) => ({
+							...ctx.base,
+							type: 'string',
+							format: 'date-time'
+						}),
+						// anything else unrepresentable -> keep the base type
+						default: (ctx: { base: Record<string, unknown> }) =>
+							ctx.base
+					}
+				})
+			)
+
 		// @ts-ignore
 		if (schema['~standard']?.jsonSchema?.[io])
 			// @ts-ignore
@@ -597,10 +618,6 @@ export const unwrapSchema = (
 				console.warn(warnings.effect)
 				break
 		}
-
-		if (vendor === 'arktype')
-			// @ts-ignore
-			return enumToOpenApi(schema?.toJsonSchema?.())
 
 		return enumToOpenApi(
 			// @ts-ignore
