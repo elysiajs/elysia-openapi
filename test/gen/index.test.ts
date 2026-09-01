@@ -425,6 +425,61 @@ describe('Gen > Type Gen', () => {
 		})
 	})
 
+	it('handle alphanumeric route keys like v1', () => {
+		const reference = declarationToJSONSchema(`
+			{
+				v1: {
+					foo: {
+						get: {
+							params: {}
+							query: {}
+							headers: {}
+							body: {}
+							response: {
+								200: {
+									value: number
+								}
+							}
+						}
+					}
+				}
+			}`)
+
+		expect(serializable(reference)!).toEqual({
+			'/v1/foo': {
+				get: {
+					body: {
+						properties: {},
+						type: 'object'
+					},
+					headers: {
+						properties: {},
+						type: 'object'
+					},
+					params: {
+						properties: {},
+						type: 'object'
+					},
+					query: {
+						properties: {},
+						type: 'object'
+					},
+					response: {
+						'200': {
+							properties: {
+								value: {
+									type: 'number'
+								}
+							},
+							required: ['value'],
+							type: 'object'
+						}
+					}
+				}
+			}
+		})
+	})
+
 	it('integrate', async () => {
 		const reference = fromTypes('test/gen/sample.ts')()
 
