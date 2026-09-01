@@ -2,7 +2,7 @@ import { Script } from 'typebox/type'
 import type { AdditionalReference } from '../types'
 
 const matchRoute = /: Elysia<(.*)>/gs
-const numberKey = /(\d+):/g
+const numberKey = /(^|[{;,\s])(\d+):/g
 
 export interface OpenAPIGeneratorOptions {
 	/**
@@ -120,7 +120,7 @@ export function declarationToJSONSchema(declaration: string) {
 
 	// Treaty is a collection of { ... } & { ... } & { ... }
 	for (const route of extractRootObjects(
-		declaration.replace(numberKey, '"$1":')
+		declaration.replace(numberKey, '$1"$2":')
 	)) {
 		let schema = Script(route.replaceAll(/readonly/g, '')) as any
 		if (schema.type !== 'object') continue

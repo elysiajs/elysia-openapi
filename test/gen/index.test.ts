@@ -62,6 +62,26 @@ describe('Gen > Type Gen', () => {
 		})
 	})
 
+	it('preserves digits in route names while quoting status codes', () => {
+		const reference = serializable(
+			declarationToJSONSchema(`{
+				api: { v4: { getUser: { post: {
+					params: {}
+					query: unknown
+					headers: unknown
+					body: { id: string }
+					response: { 200: { name: string } }
+				} } } }
+			}`)
+		) as any
+
+		expect(reference['/api/v4/getUser'].post.response['200']).toEqual({
+			type: 'object',
+			properties: { name: { type: 'string' } },
+			required: ['name']
+		})
+	})
+
 	it('parse multiple declaration to TypeScript', () => {
 		const reference = declarationToJSONSchema(`
 			{
