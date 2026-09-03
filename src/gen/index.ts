@@ -526,8 +526,8 @@ export function declarationToReference(
 		return resolveTypeRefs(routes, context)
 	}
 
-	// Elysia 1.x fallback: `Elysia<'', {}, {}, {}, Routes>`
-	let instance = scope.match(
+	// Plain instance (chain not ending in a route method)
+	const instance = scope.match(
 		instanceName
 			? new RegExp(`${instanceName}: Elysia<(.*)`, 'gs')
 			: matchRoute
@@ -535,11 +535,17 @@ export function declarationToReference(
 
 	if (!instance) return
 
-	// skip the leading generics to reach the routes map
-	for (let i = 0; i < 3; i++)
-		instance = instance.slice(instance.indexOf('}, {', 3))
+	const body = extractGenericBody(instance, 'Elysia')
+	if (!body) return
 
-	return resolveTypeRefs(declarationToJSONSchema(instance.slice(2)), context)
+	const generics = splitGenerics(body)
+
+	// Elysia 2.x: `Elysia<'', 'local', Singleton, Definitions, Metadata, Routes>`
+	// Elysia 1.x: `Elysia<'', Singleton, Definitions, Metadata, Routes>`
+	const routes = /^['"]/.test(generics[1] ?? '') ? generics[5] : generics[4]
+	if (!routes) return
+
+	return resolveTypeRefs(declarationToJSONSchema(routes), context)
 }
 
 /**

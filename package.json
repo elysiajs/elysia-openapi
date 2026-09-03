@@ -1,6 +1,6 @@
 {
     "name": "@elysia/openapi",
-    "version": "2.0.0-beta.2",
+    "version": "2.0.0-beta.3",
     "description": "Plugin for Elysia to auto-generate API documentation",
     "author": {
         "name": "saltyAom",
@@ -80,7 +80,7 @@
         "@types/bun": "1.2.20",
         "arktype": "^2.2.1",
         "effect": "^3.17.13",
-        "elysia": "2.0.0-beta.11",
+        "elysia": "^2.0.0-beta.11",
         "eslint": "9.6.0",
         "file-type": "^22.0.0",
         "openapi-types": "^12.1.3",

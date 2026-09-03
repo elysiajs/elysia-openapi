@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'bun:test'
 
-import { declarationToJSONSchema, fromTypes } from '../../src/gen'
+import {
+	declarationToJSONSchema,
+	declarationToReference,
+	fromTypes
+} from '../../src/gen'
 
 const serializable = (
 	a: Record<string, unknown> | undefined
@@ -675,20 +679,14 @@ describe('Gen > Type Gen', () => {
 			required: ['id', 'name', 'profile']
 		}
 
-		// a named `type` alias resolves to its shape (incl. the nested named
-		// `Profile`) instead of a dangling `{ $ref: 'User' }`
 		expect(resp('/named', 'post')).toEqual(user)
-		// the last route in the chain (trailing AddRoute generic) resolves too
 		expect(resp('/trailing', 'get')).toEqual(user)
-		// array of a named type
 		expect(resp('/array', 'get')).toEqual({ type: 'array', items: user })
-		// `interface` (with a nested named type) resolves
 		expect(resp('/interface', 'get')).toEqual({
 			type: 'object',
 			properties: { owner: user, active: { type: 'boolean' } },
 			required: ['owner', 'active']
 		})
-		// inline object literals and primitives keep working
 		expect(resp('/inline', 'get')).toEqual({
 			type: 'object',
 			properties: { a: { type: 'string' }, b: { type: 'number' } },
@@ -696,9 +694,6 @@ describe('Gen > Type Gen', () => {
 		})
 		expect(resp('/primitive', 'get')).toEqual({ type: 'string' })
 
-		// an imported generic type (SSEPayload from elysia) the declaration
-		// parser can't see is resolved via the TypeScript checker, with default
-		// type arguments
 		const sse = resp('/imported', 'get')
 		expect(sse.type).toBe('object')
 		expect(Object.keys(sse.properties).sort()).toEqual([
@@ -710,5 +705,71 @@ describe('Gen > Type Gen', () => {
 
 		// nothing should be left as an unresolved type reference
 		expect(JSON.stringify(reference)).not.toContain('"$ref"')
+	})
+
+	// chain ending in `.use()` emits `Elysia<...>` instead of `AddRoute<...>`
+	it('reads routes from Elysia 2 generics with imported metadata', () => {
+		const declaration = `import { Elysia } from 'elysia';
+export declare const app: Elysia<"", "local", {
+    decorator: {};
+    store: {};
+    derive: {};
+}, {
+    typebox: {};
+    error: [];
+}, import("elysia/types").DefaultMetadata, {
+    dev: {
+        login: {
+            post: {
+                body: unknown;
+                params: {};
+                query: unknown;
+                headers: unknown;
+                response: {
+                    200: {
+                        userId: string;
+                    };
+                };
+                error: never;
+            };
+        };
+    };
+} & {
+    account: {
+        delete: {
+            body: unknown;
+            params: {};
+            query: unknown;
+            headers: unknown;
+            response: {
+                200: {
+                    deleted: boolean;
+                };
+            };
+            error: never;
+        };
+    };
+}, import("elysia/types").DefaultEphemeral, {
+    derive: {};
+    schema: {};
+    schemas: {};
+    response: {};
+    error: [];
+}>;
+export type App = typeof app;`
+
+		const reference = declarationToReference(declaration)!
+
+		expect(Object.keys(reference)).toEqual(['/dev/login', '/account'])
+		expect(reference['/dev/login'].post.response[200]).toEqual({
+			type: 'object',
+			required: ['userId'],
+			properties: { userId: { type: 'string' } }
+		})
+		expect(reference['/account'].delete.response[200]).toEqual({
+			type: 'object',
+			required: ['deleted'],
+			properties: { deleted: { type: 'boolean' } }
+		})
 	})
 })

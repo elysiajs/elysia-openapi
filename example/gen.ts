@@ -72,4 +72,4 @@ export const app = new Elysia()
 	.get('/cast-type', () => {
 		return { ok: true } as any as SSEPayload
 	})
-	.listen(3000)
+	.listen(3001)
