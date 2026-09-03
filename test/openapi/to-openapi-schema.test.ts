@@ -40,6 +40,89 @@ describe('OpenAPI > toOpenAPISchema', () => {
 		})
 	})
 
+	it('excludes websocket routes from OpenAPI paths', () => {
+		const app = new Elysia()
+			.ws('/v1/events/ws', {
+				message() {}
+			})
+			.get('/health', () => 'ok')
+
+		const schema = JSON.parse(JSON.stringify(toOpenAPISchema(app)))
+
+		expect(schema.paths['/v1/events/ws']).toBeUndefined()
+		expect(schema.paths['/health'].get).toBeDefined()
+	})
+
+	it('emits QUERY routes only for OpenAPI 3.2', () => {
+		const app = new Elysia().route('QUERY', '/search', () => 'ok', {
+			body: t.Object({ filter: t.String() })
+		})
+
+		const openapi31 = JSON.parse(
+			JSON.stringify(
+				toOpenAPISchema(
+					app,
+					undefined,
+					undefined,
+					undefined,
+					'3.1.2'
+				)
+			)
+		)
+		const openapi32 = JSON.parse(
+			JSON.stringify(
+				toOpenAPISchema(
+					app,
+					undefined,
+					undefined,
+					undefined,
+					'3.2.0'
+				)
+			)
+		)
+
+		expect(openapi31.paths['/search']).toBeUndefined()
+		expect(openapi32.paths['/search'].query.requestBody).toBeDefined()
+		expect(openapi32.paths['/search'].query.operationId).toBe('querySearch')
+	})
+
+	it('uses additionalOperations for other OpenAPI 3.2 methods', () => {
+		const app = new Elysia()
+			.route('PROPFIND', '/dav', () => 'ok')
+			.route('CUSTOM', '/custom', () => 'ok')
+		const openapi31 = JSON.parse(
+			JSON.stringify(
+				toOpenAPISchema(
+					app,
+					undefined,
+					undefined,
+					undefined,
+					'3.1.2'
+				)
+			)
+		)
+		const openapi32 = JSON.parse(
+			JSON.stringify(
+				toOpenAPISchema(
+					app,
+					undefined,
+					undefined,
+					undefined,
+					'3.2.0'
+				)
+			)
+		)
+
+		expect(openapi31.paths['/dav']).toBeUndefined()
+		expect(openapi32.paths['/dav'].propfind).toBeUndefined()
+		expect(
+			openapi32.paths['/dav'].additionalOperations.PROPFIND.operationId
+		).toBe('propfindDav')
+		expect(
+			openapi32.paths['/custom'].additionalOperations.CUSTOM.operationId
+		).toBe('customCustom')
+	})
+
 	it('handle params', () => {
 		const app = new Elysia().get('/user/:user', () => 'hello', {
 			params: t.Object({

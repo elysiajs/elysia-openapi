@@ -64,7 +64,8 @@ Enable/Disable the plugin
 
 @default '3.1.2'
 
-OpenAPI document version to emit. Supports OpenAPI `3.0.x` and `3.1.x`.
+OpenAPI document version to emit. Supports OpenAPI `3.0.x`, `3.1.x`, and
+`3.2.x`.
 
 ## documentation
 
@@ -72,13 +73,19 @@ OpenAPI documentation information
 
 @see https://spec.openapis.org/oas/latest.html
 
+OpenAPI 3.2 documentation supports `$self`, named servers, nested tags,
+`components.mediaTypes`, streaming media metadata, new security fields,
+`QUERY`, and `additionalOperations`.
+
 ## exclude
 
 Configuration to exclude paths or methods from documentation
 
 ## exclude.methods
 
-List of methods to exclude from documentation
+List of methods to exclude from documentation. In OpenAPI 3.2, `QUERY` is a
+normal Path Item operation and other HTTP methods are emitted under
+`additionalOperations`.
 
 ## exclude.paths
 

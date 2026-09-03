@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'bun:test'
-import { Elysia } from 'elysia'
+import { Elysia, type AnyElysia } from 'elysia'
 
 import { toOpenAPISchema } from '../../src/openapi'
 
-const getPathKeys = (app: Elysia, exclude?: Parameters<typeof toOpenAPISchema>[1]) =>
+const getPathKeys = (
+	app: AnyElysia,
+	exclude?: Parameters<typeof toOpenAPISchema>[1]
+) =>
 	Object.keys(toOpenAPISchema(app, exclude).paths)
 
 const app = new Elysia()

@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia'
 import SwaggerParser from '@apidevtools/swagger-parser'
+import { validate as validateOpenAPI } from '@scalar/openapi-parser'
 import { openapi } from '../src'
 
 import { describe, expect, it } from 'bun:test'
@@ -47,6 +48,117 @@ describe('Swagger', () => {
 		expect(document.openapi).toBe('3.0.3')
 		expect(schema).toMatchObject({ type: 'string', nullable: true })
 		await SwaggerParser.validate(document).catch((error) => fail(error))
+	})
+
+	it('emits and validates OpenAPI 3.2 documents', async () => {
+		const app = new Elysia()
+			.use(
+				openapi({
+					openapiVersion: '3.2.0',
+					documentation: {
+						$self: 'https://example.com/openapi.json',
+						paths: {
+							'/status': {
+								get: {
+									responses: {
+										'200': { summary: 'Service is healthy' }
+									}
+								}
+							}
+						},
+						servers: [
+							{
+								name: 'production',
+								url: 'https://api.example.com'
+							}
+						],
+						tags: [
+							{
+								name: 'books',
+								summary: 'Books',
+								parent: 'products',
+								kind: 'nav'
+							}
+						],
+						components: {
+							schemas: {
+								Event: {
+									type: 'string',
+									xml: { nodeType: 'text' }
+								},
+								FallbackEvent: { type: 'object' },
+								EventEnvelope: {
+									oneOf: [
+										{ $ref: '#/components/schemas/FallbackEvent' }
+									],
+									discriminator: {
+										propertyName: 'eventType',
+										defaultMapping:
+											'#/components/schemas/FallbackEvent'
+									}
+								}
+							},
+							securitySchemes: {
+								LegacyKey: {
+									type: 'apiKey',
+									name: 'x-api-key',
+									in: 'header',
+									deprecated: true
+								},
+								DeviceOAuth: {
+									type: 'oauth2',
+									oauth2MetadataUrl:
+										'https://auth.example.com/.well-known/oauth-authorization-server',
+									flows: {
+										deviceAuthorization: {
+											deviceAuthorizationUrl:
+												'https://auth.example.com/device',
+											tokenUrl: 'https://auth.example.com/token',
+											scopes: { read: 'Read books' }
+										}
+									}
+								}
+							},
+							mediaTypes: {
+								EventStream: {
+									description: 'Server-sent events',
+									itemSchema: {
+										type: 'object',
+										properties: {
+											data: { type: 'string' }
+										}
+									}
+								}
+							}
+						}
+					}
+				})
+			)
+			.route('QUERY', '/books/search', () => ({ found: 0 }), {
+				body: t.Object({ filter: t.String() }),
+				response: t.Object({ found: t.Number() })
+			})
+			.route('PROPFIND', '/books', () => 'ok')
+
+		await app.modules
+
+		const document = await app
+			.handle(req('/openapi/json'))
+			.then((response) => response.json())
+
+		expect(document.openapi).toBe('3.2.0')
+		expect(document.$self).toBe('https://example.com/openapi.json')
+		expect(document.paths['/books/search'].query.requestBody).toBeDefined()
+		expect(
+			document.paths['/books'].additionalOperations.PROPFIND.operationId
+		).toBe('propfindBooks')
+		expect(document.paths['/status'].get.responses['200']).toEqual({
+			summary: 'Service is healthy'
+		})
+
+		const validation = await validateOpenAPI(document)
+		expect(validation.valid).toBe(true)
+		expect(validation.errors).toEqual([])
 	})
 
 	it('use custom Swagger version', async () => {

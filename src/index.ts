@@ -16,10 +16,10 @@ type OpenAPIDocument = {
 const DEFAULT_OPENAPI_VERSION: OpenAPIVersion = '3.1.2'
 
 const normalizeOpenAPIVersion = (version: string): OpenAPIVersion => {
-	if (/^3\.(0|1)\.\d+$/.test(version)) return version as OpenAPIVersion
+	if (/^3\.(0|1|2)\.\d+$/.test(version)) return version as OpenAPIVersion
 
 	console.warn(
-		`[@elysiajs/openapi] Invalid openapiVersion "${version}". Falling back to ${DEFAULT_OPENAPI_VERSION}.`
+		`[@elysiajs/openapi] Invalid openapiVersion "${version}". Expected 3.0.x, 3.1.x, or 3.2.x. Falling back to ${DEFAULT_OPENAPI_VERSION}.`
 	)
 	return DEFAULT_OPENAPI_VERSION
 }
@@ -94,7 +94,8 @@ export const openapi = <
 			tags: !exclude?.tags
 				? documentation.tags
 				: documentation.tags?.filter(
-						(tag) => !exclude.tags?.includes(tag.name)
+						(tag: { name: string }) =>
+							!exclude.tags?.includes(tag.name)
 					),
 			info: {
 				title: 'Elysia Documentation',
@@ -206,6 +207,24 @@ export const openapi = <
 
 export { fromTypes } from './gen'
 export { toOpenAPISchema, withHeaders } from './openapi'
-export type { ElysiaOpenAPIConfig, OpenAPIVersion }
+export type {
+	ElysiaOpenAPIConfig,
+	OpenAPI32ComponentsObject,
+	OpenAPI32DiscriminatorObject,
+	OpenAPI32Documentation,
+	OpenAPI32EncodingObject,
+	OpenAPI32ExampleObject,
+	OpenAPI32MediaTypeObject,
+	OpenAPI32OAuth2SecurityScheme,
+	OpenAPI32OAuthFlowObject,
+	OpenAPI32OperationObject,
+	OpenAPI32PathItemObject,
+	OpenAPI32ResponseObject,
+	OpenAPI32SecuritySchemeObject,
+	OpenAPI32ServerObject,
+	OpenAPI32TagObject,
+	OpenAPIDocumentation,
+	OpenAPIVersion
+} from './types'
 
 export default openapi

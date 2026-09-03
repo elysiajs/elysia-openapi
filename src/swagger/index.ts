@@ -1,4 +1,4 @@
-import { OpenAPIV3 } from 'openapi-types'
+import type { OpenAPIV3 } from '@scalar/openapi-types'
 import { ElysiaOpenAPIConfig } from '../types'
 import { SwaggerUIOptions } from './types'
 

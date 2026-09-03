@@ -26,5 +26,11 @@ describe('OpenAPI > nullToOpenApi', () => {
 			},
 			default: { type: 'null', reason: 'metadata' }
 		})
+		expect(nullToOpenApi(schema, '3.2.0')).toMatchObject({
+			properties: {
+				promoCode: { type: ['string', 'null'] }
+			},
+			default: { type: 'null', reason: 'metadata' }
+		})
 	})
 })
