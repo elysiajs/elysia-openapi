@@ -1,4 +1,4 @@
-import type { OpenAPIV3 } from 'openapi-types'
+import type { OpenAPIV3 } from '@scalar/openapi-types'
 import { ElysiaOpenAPIConfig } from '../types'
 
 const elysiaCSS = `.light-mode {

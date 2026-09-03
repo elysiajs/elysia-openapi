@@ -1,23 +1,180 @@
 import type { TSchema } from 'elysia'
-import type { OpenAPIV3, OpenAPIV3_1 } from 'openapi-types'
+import type {
+	OpenAPIV3,
+	OpenAPIV3_1,
+	OpenAPIV3_2
+} from '@scalar/openapi-types'
 import type { ApiReferenceConfiguration } from '@scalar/types'
 import type { SwaggerUIOptions } from './swagger/types'
 
 export type OpenAPIProvider = 'scalar' | 'swagger-ui' | null
-export type OpenAPIVersion = `3.0.${number}` | `3.1.${number}`
+export type OpenAPIVersion =
+	| `3.0.${number}`
+	| `3.1.${number}`
+	| `3.2.${number}`
 
 type MaybeArray<T> = T | T[]
-type OpenAPIDocumentation =
-	| Omit<
-			Partial<OpenAPIV3.Document>,
-			| 'x-express-openapi-additional-middleware'
-			| 'x-express-openapi-validation-strict'
-	  >
-	| Omit<
-			Partial<OpenAPIV3_1.Document>,
-			| 'x-express-openapi-additional-middleware'
-			| 'x-express-openapi-validation-strict'
-	  >
+
+export type OpenAPI32TagObject = OpenAPIV3_2.TagObject
+export type OpenAPI32ServerObject = OpenAPIV3_2.ServerObject
+
+export type OpenAPI32DiscriminatorObject = Omit<
+	OpenAPIV3_2.DiscriminatorObject,
+	'propertyName'
+> & {
+	propertyName?: string
+	defaultMapping?: string
+}
+
+export type OpenAPI32ExampleObject = OpenAPIV3_2.ExampleObject
+
+export type OpenAPI32EncodingObject = Omit<
+	OpenAPIV3_2.EncodingObject,
+	'headers'
+> & {
+	headers?: Record<
+		string,
+		OpenAPIV3_2.ReferenceObject | OpenAPIV3_2.HeaderObject
+	>
+	encoding?: Record<string, OpenAPI32EncodingObject>
+	prefixEncoding?: OpenAPI32EncodingObject[]
+	itemEncoding?: OpenAPI32EncodingObject
+}
+
+export type OpenAPI32MediaTypeObject = Omit<
+	OpenAPIV3_2.MediaTypeObject,
+	'encoding' | 'examples'
+> & {
+	description?: string
+	itemSchema?:
+		| OpenAPIV3_2.SchemaObject
+		| OpenAPIV3_2.ReferenceObject
+	examples?: Record<
+		string,
+		OpenAPIV3_2.ReferenceObject | OpenAPI32ExampleObject
+	>
+	encoding?: Record<string, OpenAPI32EncodingObject>
+	prefixEncoding?: OpenAPI32EncodingObject[]
+	itemEncoding?: OpenAPI32EncodingObject
+}
+
+export type OpenAPI32ResponseObject = Omit<
+	OpenAPIV3_2.ResponseObject,
+	'description' | 'content'
+> & {
+	summary?: string
+	description?: string
+	content?: Record<string, OpenAPI32MediaTypeObject>
+}
+
+export type OpenAPI32OAuthFlowObject = {
+	authorizationUrl?: string
+	tokenUrl?: string
+	deviceAuthorizationUrl?: string
+	refreshUrl?: string
+	scopes: Record<string, string>
+}
+
+export type OpenAPI32OAuth2SecurityScheme = Omit<
+	OpenAPIV3_2.OAuth2SecurityScheme,
+	'flows'
+> & {
+	deprecated?: boolean
+	oauth2MetadataUrl?: string
+	flows: {
+		implicit?: OpenAPI32OAuthFlowObject
+		password?: OpenAPI32OAuthFlowObject
+		clientCredentials?: OpenAPI32OAuthFlowObject
+		authorizationCode?: OpenAPI32OAuthFlowObject
+		deviceAuthorization?: OpenAPI32OAuthFlowObject
+	}
+}
+
+export type OpenAPI32SecuritySchemeObject =
+	| (OpenAPIV3_2.SecuritySchemeObject & { deprecated?: boolean })
+	| OpenAPI32OAuth2SecurityScheme
+
+export type OpenAPI32OperationObject = Omit<
+	OpenAPIV3_2.OperationObject,
+	'responses' | 'servers'
+> & {
+	responses?: Record<
+		string,
+		OpenAPIV3_2.ReferenceObject | OpenAPI32ResponseObject
+	>
+	servers?: OpenAPI32ServerObject[]
+}
+
+export type OpenAPI32PathItemObject = Omit<
+	OpenAPIV3_2.PathItemObject,
+	| 'get'
+	| 'put'
+	| 'post'
+	| 'delete'
+	| 'options'
+	| 'head'
+	| 'patch'
+	| 'trace'
+	| 'query'
+	| 'additionalOperations'
+	| 'servers'
+> & {
+	get?: OpenAPI32OperationObject
+	put?: OpenAPI32OperationObject
+	post?: OpenAPI32OperationObject
+	delete?: OpenAPI32OperationObject
+	options?: OpenAPI32OperationObject
+	head?: OpenAPI32OperationObject
+	patch?: OpenAPI32OperationObject
+	trace?: OpenAPI32OperationObject
+	query?: OpenAPI32OperationObject
+	additionalOperations?: Record<string, OpenAPI32OperationObject>
+	servers?: OpenAPI32ServerObject[]
+}
+
+export type OpenAPI32ComponentsObject = Omit<
+	OpenAPIV3_2.ComponentsObject,
+	'responses' | 'securitySchemes' | 'mediaTypes'
+> & {
+	responses?: Record<
+		string,
+		OpenAPIV3_2.ReferenceObject | OpenAPI32ResponseObject
+	>
+	securitySchemes?: Record<
+		string,
+		OpenAPIV3_2.ReferenceObject | OpenAPI32SecuritySchemeObject
+	>
+	mediaTypes?: Record<
+		string,
+		OpenAPIV3_2.ReferenceObject | OpenAPI32MediaTypeObject
+	>
+}
+
+export type OpenAPI32Documentation = Omit<
+	Partial<OpenAPIV3_2.Document>,
+	'components' | 'paths' | 'servers' | 'tags' | 'webhooks'
+> & {
+	$self?: string
+	components?: OpenAPI32ComponentsObject
+	paths?: Record<string, OpenAPI32PathItemObject | undefined>
+	servers?: OpenAPI32ServerObject[]
+	tags?: OpenAPI32TagObject[]
+	webhooks?: Record<
+		string,
+		OpenAPI32PathItemObject | OpenAPIV3_2.ReferenceObject
+	>
+}
+
+type DocumentationWithoutExpressExtensions<T> = Omit<
+	T,
+	| 'x-express-openapi-additional-middleware'
+	| 'x-express-openapi-validation-strict'
+>
+
+export type OpenAPIDocumentation =
+	| DocumentationWithoutExpressExtensions<Partial<OpenAPIV3.Document>>
+	| DocumentationWithoutExpressExtensions<Partial<OpenAPIV3_1.Document>>
+	| DocumentationWithoutExpressExtensions<OpenAPI32Documentation>
 
 export type MapJsonSchema = { [vendor: string]: Function } & {
 	[vendor in  // schema['~standard'].vendor
@@ -146,7 +303,7 @@ export interface ElysiaOpenAPIConfig<
 	 *'
 	 * @see https://github.com/scalar/scalar/blob/main/documentation/configuration.md
 	 */
-	scalar?: ApiReferenceConfiguration & {
+	scalar?: Partial<ApiReferenceConfiguration> & {
 		/**
 		 * Version to use for Scalar cdn bundle
 		 *

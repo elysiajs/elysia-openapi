@@ -7,7 +7,7 @@ import type {
 	StandardSchemaV1Like
 } from 'elysia/types'
 
-import type { OpenAPIV3 } from 'openapi-types'
+import type { OpenAPIV3, OpenAPIV3_2 } from '@scalar/openapi-types'
 import { Kind, TAnySchema, type TObject } from '@sinclair/typebox'
 
 import type {
@@ -15,6 +15,7 @@ import type {
 	AdditionalReferences,
 	ElysiaOpenAPIConfig,
 	MapJsonSchema,
+	OpenAPI32OperationObject,
 	OpenAPIVersion
 } from './types'
 
@@ -38,6 +39,20 @@ const toOperationId = (method: string, paths: string) => {
 
 	return operationId
 }
+
+const OPENAPI_HTTP_METHODS = new Set([
+	'get',
+	'post',
+	'put',
+	'delete',
+	'patch',
+	'head',
+	'options',
+	'trace'
+])
+
+const isOpenAPI32 = (version: OpenAPIVersion) =>
+	version.startsWith('3.2.')
 
 const optionalParamsRegex = /(\/:\w+\?)/g
 
@@ -965,7 +980,7 @@ export function toOpenAPISchema(
 			? [exclude.paths]
 			: []
 
-	const paths: OpenAPIV3.PathsObject = Object.create(null)
+	const paths: OpenAPIV3_2.PathsObject = Object.create(null)
 	// @ts-ignore
 	const definitions = app.getGlobalDefinitions?.().type
 
@@ -986,9 +1001,22 @@ export function toOpenAPISchema(
 	for (const route of routes) {
 		if (route.hooks?.detail?.hide) continue
 
-		const method = route.method.toLowerCase()
+		const rawMethod = String(route.method)
+		const method = rawMethod.toLowerCase()
+		const supportsOpenAPI32 = isOpenAPI32(openapiVersion)
+		const isOpenAPI32Method = supportsOpenAPI32 && method === 'query'
+		const isAdditionalOperation =
+			supportsOpenAPI32 &&
+			method !== 'all' &&
+			method !== 'ws' &&
+			!OPENAPI_HTTP_METHODS.has(method) &&
+			!isOpenAPI32Method
 
 		if (
+			(method !== 'all' &&
+				!OPENAPI_HTTP_METHODS.has(method) &&
+				!isOpenAPI32Method &&
+				!isAdditionalOperation) ||
 			(excludeStaticFile && route.path.includes('.')) ||
 			excludePaths.some((exclusion) => {
 				if (exclusion instanceof RegExp) {
@@ -1004,7 +1032,7 @@ export function toOpenAPISchema(
 			continue
 
 		const hooks: InputSchema & {
-			detail: Partial<OpenAPIV3.OperationObject>
+			detail: Partial<OpenAPI32OperationObject>
 		} = route.hooks ?? {}
 
 		if (references?.length)
@@ -1064,12 +1092,12 @@ export function toOpenAPISchema(
 
 		if (
 			excludeTags &&
-			hooks.detail.tags?.some((tag) => excludeTags?.includes(tag))
+			hooks.detail.tags?.some((tag: string) => excludeTags?.includes(tag))
 		)
 			continue
 
 		// Start building the operation object
-		const operation: Partial<OpenAPIV3.OperationObject> = {
+		const operation: Partial<OpenAPI32OperationObject> = {
 			...hooks.detail
 		}
 
@@ -1318,10 +1346,16 @@ export function toOpenAPISchema(
 			const current = paths[path] as any
 
 			if (method !== 'all') {
-				current[method] = {
+				const describedOperation = {
 					...operation,
 					operationId
 				}
+
+				if (isAdditionalOperation) {
+					current.additionalOperations ??= {}
+					current.additionalOperations[rawMethod] = describedOperation
+				} else current[method] = describedOperation
+
 				continue
 			}
 
@@ -1334,7 +1368,8 @@ export function toOpenAPISchema(
 				'patch',
 				'head',
 				'options',
-				'trace'
+				'trace',
+				...(supportsOpenAPI32 ? ['query'] : [])
 			])
 				current[method] = {
 					...operation,
@@ -1363,7 +1398,7 @@ export function toOpenAPISchema(
 			schemas
 		},
 		paths
-	} satisfies Pick<OpenAPIV3.Document, 'paths' | 'components'>
+	} satisfies Pick<OpenAPIV3_2.Document, 'paths' | 'components'>
 }
 
 type ResponseHeaderSchemas = Record<
