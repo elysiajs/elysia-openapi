@@ -66,6 +66,59 @@ describe('Gen > Type Gen', () => {
 		})
 	})
 
+	it('keeps routes when metadata errors use imported generics', () => {
+		const reference = declarationToJSONSchema(`
+			first: {
+				get: {
+					body: {};
+					params: {};
+					query: {};
+					headers: {};
+					response: { 200: {
+						body: string;
+						params: string;
+						query: string;
+						headers: string;
+						response: string;
+						error: string;
+					} };
+					error: import('./errors').RouteError<404>;
+				};
+			};
+			second: {
+				post: {
+					body: {};
+					params: {};
+					query: {};
+					headers: {};
+					response: { 200: { saved: boolean } };
+					error: import('./errors').RouteError<422>;
+				};
+			};
+		`)
+
+		expect(Object.keys(reference)).toEqual(['/first', '/second'])
+		expect(reference['/first'].get.response[200]).toEqual({
+			type: 'object',
+			properties: {
+				body: { type: 'string' },
+				params: { type: 'string' },
+				query: { type: 'string' },
+				headers: { type: 'string' },
+				response: { type: 'string' },
+				error: { type: 'string' }
+			},
+			required: ['body', 'params', 'query', 'headers', 'response', 'error']
+		})
+		expect(reference['/second'].post.response[200]).toEqual({
+			type: 'object',
+			properties: { saved: { type: 'boolean' } },
+			required: ['saved']
+		})
+		expect(reference['/first'].get).not.toHaveProperty('error')
+		expect(reference['/second'].post).not.toHaveProperty('error')
+	})
+
 	it('preserves digits in route names while quoting status codes', () => {
 		const reference = serializable(
 			declarationToJSONSchema(`{

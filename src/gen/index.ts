@@ -115,6 +115,99 @@ export function extractRootObjects(code: string) {
 	return results
 }
 
+interface RouteObject {
+	parent?: RouteObject
+	fields: { name: string; colon: number }[]
+	end: number
+}
+
+const omitImportedRouteError = (route: string) => {
+	let quote: string | undefined
+	let escaped = false
+	const objects: RouteObject[] = []
+	const stack: RouteObject[] = []
+
+	for (let i = 0; i < route.length; i++) {
+		const char = route[i]
+
+		if (quote) {
+			if (escaped) escaped = false
+			else if (char === '\\') escaped = true
+			else if (char === quote) quote = undefined
+
+			continue
+		}
+
+		if (char === '"' || char === "'" || char === '`') {
+			quote = char
+			continue
+		}
+
+		if (char === '{') {
+			const object: RouteObject = {
+				parent: stack.at(-1),
+				fields: [],
+				end: -1
+			}
+
+			objects.push(object)
+			stack.push(object)
+			continue
+		}
+
+		if (char === '}') {
+			const object = stack.pop()
+			if (object) object.end = i
+			continue
+		}
+
+		if (!stack.length || !/[A-Za-z_$]/.test(char)) continue
+
+		let previous = i - 1
+		while (previous >= 0 && /\s/.test(route[previous])) previous--
+		if (route[previous] !== '{' && route[previous] !== ';') continue
+
+		let end = i + 1
+		while (end < route.length && /[\w$]/.test(route[end])) end++
+
+		let colon = end
+		while (colon < route.length && /\s/.test(route[colon])) colon++
+
+		if (route[colon] === ':')
+			stack.at(-1)!.fields.push({ name: route.slice(i, end), colon })
+	}
+
+	const isRoute = (object: RouteObject) =>
+		object.fields.map((field) => field.name).join(',') ===
+		'body,params,query,headers,response,error'
+
+	const targets = objects
+		.filter((object) => {
+			if (!isRoute(object)) return false
+
+			for (let parent = object.parent; parent; parent = parent.parent)
+				if (isRoute(parent)) return false
+
+			const error = object.fields[5]
+			return route
+				.slice(error.colon + 1, object.end)
+				.trimStart()
+				.startsWith('import(')
+		})
+		.map((object) => ({
+			start: object.fields[5].colon + 1,
+			end: object.end
+		}))
+
+	for (const target of targets.sort((left, right) => right.start - left.start))
+		route =
+			route.slice(0, target.start) +
+			' never;' +
+			route.slice(target.end)
+
+	return route
+}
+
 export function declarationToJSONSchema(declaration: string) {
 	const routes: AdditionalReference = Object.create(null)
 
@@ -122,7 +215,15 @@ export function declarationToJSONSchema(declaration: string) {
 	for (const route of extractRootObjects(
 		declaration.replace(numberKey, '$1"$2":')
 	)) {
-		let schema = Script(route.replaceAll(/readonly/g, '')) as any
+		const source = route.replaceAll(/readonly/g, '')
+		let schema = Script(source) as any
+
+		if (schema.type !== 'object') {
+			// TypeBox can't parse error
+			const normalized = omitImportedRouteError(source)
+			if (normalized !== source) schema = Script(normalized) as any
+		}
+
 		if (schema.type !== 'object') continue
 
 		const paths = []

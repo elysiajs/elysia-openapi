@@ -1071,6 +1071,33 @@ describe('OpenAPI > toOpenAPISchema', () => {
 		})
 	})
 
+	it('inherits tags from constructor', () => {
+		const app = new Elysia({ tags: ['User'] }).use(
+			new Elysia().get('/user', () => 'hello')
+		)
+		.get('/self')
+
+		is(app, {
+			components: {
+				schemas: {}
+			},
+			paths: {
+				'/user': {
+					get: {
+						operationId: 'getUser',
+						tags: ['User']
+					}
+				},
+				'/self': {
+					get: {
+						operationId: 'getSelf',
+						tags: ['User']
+					}
+				}
+			}
+		})
+	})
+
 	it('use custom operationId', () => {
 		const app = new Elysia().get('/user', {
 			detail: {

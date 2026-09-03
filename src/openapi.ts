@@ -1165,7 +1165,7 @@ export function toOpenAPISchema(
 	// Flatten routes to merge guard() schemas into direct hook properties
 	// This makes guard schemas accessible for OpenAPI documentation generation
 	const routes = flattenRoutes(app.routes, vendors, openapiVersion)
-	for (const route of routes) {
+	for (const [index, route] of routes.entries()) {
 		if (route.hooks?.detail?.hide) continue
 
 		const method = route.method.toLowerCase()
@@ -1241,14 +1241,24 @@ export function toOpenAPISchema(
 						}
 			}
 
+		const config = app['~routes'][index]?.[3]['~config']
+		const tags =
+			config?.tags ??
+			config?.detail?.tags ??
+			app['~config']?.tags ??
+			app['~config']?.detail?.tags
+
 		if (
 			excludeTags &&
-			hooks.detail?.tags?.some((tag) => excludeTags?.includes(tag))
+			(hooks.detail?.tags ?? tags)?.some((tag) =>
+				excludeTags.includes(tag)
+			)
 		)
 			continue
 
 		// Start building the operation object
 		const operation: Partial<OpenAPIV3.OperationObject> = {
+			...(tags ? { tags } : {}),
 			...hooks.detail
 		}
 
