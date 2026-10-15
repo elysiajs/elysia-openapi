@@ -3,6 +3,7 @@ import type { AdditionalReference } from '../types'
 
 const matchRoute = /: Elysia<(.*)>/gs
 const numberKey = /(^|[{;,\s])(\d+):/g
+const internalOperand = /\s*&\s*(?=\{\s*['"]?~)/y
 
 export interface OpenAPIGeneratorOptions {
 	/**
@@ -93,18 +94,25 @@ export function extractRootObjects(code: string) {
 		const braceIdx = code.indexOf('{', colonIdx)
 		if (braceIdx === -1) break
 
-		// scan braces
-		let depth = 0
+		// scan braces, with an intersected `& { '~handled': ... }` as part of
+		// the value, eg. a route at `/` is `get: { ... } & { '~handled': ... }`
 		let end = braceIdx
-		for (; end < code.length; end++) {
-			if (code[end] === '{') depth++
-			else if (code[end] === '}') {
-				depth--
-				if (depth === 0) {
-					end++ // move past closing brace
-					break
+		while (true) {
+			let depth = 0
+			for (; end < code.length; end++) {
+				if (code[end] === '{') depth++
+				else if (code[end] === '}') {
+					depth--
+					if (depth === 0) {
+						end++ // move past closing brace
+						break
+					}
 				}
 			}
+
+			internalOperand.lastIndex = end
+			if (!internalOperand.test(code)) break
+			end = internalOperand.lastIndex
 		}
 
 		results.push(`{${code.slice(keyStart + 1, end)};}`)
@@ -117,15 +125,51 @@ export function extractRootObjects(code: string) {
 
 interface RouteObject {
 	parent?: RouteObject
-	fields: { name: string; colon: number }[]
+	// a member spans from its key to its trailing `;` or `,`, or the closing `}`
+	fields: { name: string; colon: number; end: number }[]
+	// `~` members, eg. `'~handled': ...;`
+	internal: { start: number; end: number }[]
+	// unclosed `<`, `(` and `[`, so `,` in `A<B, C>` doesn't end a member
+	depth: number
+	// opened in its parent's `<`, `(` or `[`, eg. `Record<string, {...}>`
+	nested: boolean
+	start: number
 	end: number
 }
 
-const omitImportedRouteError = (route: string) => {
+// in any order, a route mapped over its keys may reorder them
+const isRoute = (object: RouteObject) =>
+	object.fields
+		.map((field) => field.name)
+		.sort()
+		.join(',') === 'body,error,headers,params,query,response'
+
+const scanRouteObjects = (route: string) => {
 	let quote: string | undefined
 	let escaped = false
 	const objects: RouteObject[] = []
 	const stack: RouteObject[] = []
+
+	const isMemberStart = (at: number) => {
+		let previous = at - 1
+		while (previous >= 0 && /\s/.test(route[previous])) previous--
+
+		return route[previous] === '{' || route[previous] === ';'
+	}
+
+	const addInternal = (start: number, keyEnd: number) => {
+		if (!stack.length || !isMemberStart(start)) return
+
+		while (keyEnd < route.length && /\s/.test(route[keyEnd])) keyEnd++
+		if (route[keyEnd] === ':')
+			stack.at(-1)!.internal.push({ start, end: -1 })
+	}
+
+	// a member ends at the next `;` or `,` of its own object, or where it closes
+	const endMember = (object: RouteObject | undefined, end: number) => {
+		for (const member of [object?.fields.at(-1), object?.internal.at(-1)])
+			if (member?.end === -1) member.end = end
+	}
 
 	for (let i = 0; i < route.length; i++) {
 		const char = route[i]
@@ -139,14 +183,22 @@ const omitImportedRouteError = (route: string) => {
 		}
 
 		if (char === '"' || char === "'" || char === '`') {
+			if (route[i + 1] === '~')
+				addInternal(i, route.indexOf(char, i + 1) + 1)
+
 			quote = char
 			continue
 		}
 
 		if (char === '{') {
+			const parent = stack.at(-1)
 			const object: RouteObject = {
-				parent: stack.at(-1),
+				parent,
 				fields: [],
+				internal: [],
+				depth: 0,
+				nested: !!parent?.depth,
+				start: i,
 				end: -1
 			}
 
@@ -158,14 +210,35 @@ const omitImportedRouteError = (route: string) => {
 		if (char === '}') {
 			const object = stack.pop()
 			if (object) object.end = i
+			endMember(object, i)
 			continue
 		}
 
-		if (!stack.length || !/[A-Za-z_$]/.test(char)) continue
+		if (char === ';' || char === ',') {
+			if (!stack.at(-1)?.depth) endMember(stack.at(-1), i + 1)
+			continue
+		}
 
-		let previous = i - 1
-		while (previous >= 0 && /\s/.test(route[previous])) previous--
-		if (route[previous] !== '{' && route[previous] !== ';') continue
+		if (stack.length && '<(['.includes(char)) {
+			stack.at(-1)!.depth++
+			continue
+		}
+
+		if (stack.length && isClosing(char, route[i - 1])) {
+			if (stack.at(-1)!.depth) stack.at(-1)!.depth--
+			continue
+		}
+
+		if (char === '~') {
+			let end = i + 1
+			while (end < route.length && /[\w$]/.test(route[end])) end++
+
+			addInternal(i, end)
+			continue
+		}
+
+		if (!stack.length || !/[A-Za-z_$]/.test(char) || !isMemberStart(i))
+			continue
 
 		let end = i + 1
 		while (end < route.length && /[\w$]/.test(route[end])) end++
@@ -174,12 +247,95 @@ const omitImportedRouteError = (route: string) => {
 		while (colon < route.length && /\s/.test(route[colon])) colon++
 
 		if (route[colon] === ':')
-			stack.at(-1)!.fields.push({ name: route.slice(i, end), colon })
+			stack.at(-1)!.fields.push({
+				name: route.slice(i, end),
+				colon,
+				end: -1
+			})
 	}
 
-	const isRoute = (object: RouteObject) =>
-		object.fields.map((field) => field.name).join(',') ===
-		'body,params,query,headers,response,error'
+	return objects
+}
+
+// Elysia keeps internal route metadata in `~` members of a route,
+// eg. `{ body: ...; error: never } & { '~handled': ... }`
+// A `~` path segment or schema property isn't a route member, so it stays
+const omitInternalRouteMembers = (route: string) => {
+	const objects = scanRouteObjects(route)
+	const ranges: { start: number; end: number }[] = []
+
+	// path segments and methods, down to the first object shaped like
+	// a route. Anything in a route is its schema, even if shaped like one
+	const map = new Set<RouteObject>()
+	// where a route, or a `~` object intersected on one, closes
+	const ends = new Set<number>()
+
+	const skipSpace = (at: number) => {
+		while (at >= 0 && /\s/.test(route[at])) at--
+
+		return at
+	}
+
+	for (const object of objects) {
+		if (object.end === -1) continue
+
+		// a member's value, or an intersection in one
+		const previous = skipSpace(object.start - 1)
+		if (
+			object.parent &&
+			(object.nested ||
+				!map.has(object.parent) ||
+				(route[previous] !== ':' && route[previous] !== '&'))
+		)
+			continue
+
+		if (isRoute(object)) {
+			ends.add(object.end)
+			ranges.push(...object.internal)
+			continue
+		}
+
+		map.add(object)
+
+		// `& { '~handled': ... }` with nothing else, intersected on a route
+		if (
+			!object.internal.length ||
+			route[previous] !== '&' ||
+			!ends.has(skipSpace(previous - 1))
+		)
+			continue
+
+		let rest = ''
+		let at = object.start + 1
+		for (const member of object.internal) {
+			rest += route.slice(at, member.start)
+			at = member.end
+		}
+		if ((rest + route.slice(at, object.end)).trim()) continue
+
+		ends.add(object.end)
+		ranges.push({ start: previous, end: object.end + 1 })
+	}
+
+	ranges.sort((left, right) => left.start - right.start)
+
+	let normalized = ''
+	let at = 0
+	for (const range of ranges) {
+		// already removed with the member it's nested in
+		if (range.start < at) continue
+
+		normalized += route.slice(at, range.start)
+		at = range.end
+	}
+
+	return normalized + route.slice(at)
+}
+
+const omitImportedRouteError = (route: string) => {
+	const objects = scanRouteObjects(route)
+	const errorOf = (object: RouteObject) =>
+		object.fields.find((field) => field.name === 'error')!
 
 	const targets = objects
 		.filter((object) => {
@@ -188,15 +344,15 @@ const omitImportedRouteError = (route: string) => {
 			for (let parent = object.parent; parent; parent = parent.parent)
 				if (isRoute(parent)) return false
 
-			const error = object.fields[5]
+			const error = errorOf(object)
 			return route
-				.slice(error.colon + 1, object.end)
+				.slice(error.colon + 1, error.end)
 				.trimStart()
 				.startsWith('import(')
 		})
 		.map((object) => ({
-			start: object.fields[5].colon + 1,
-			end: object.end
+			start: errorOf(object).colon + 1,
+			end: errorOf(object).end
 		}))
 
 	for (const target of targets.sort((left, right) => right.start - left.start))
@@ -215,7 +371,9 @@ export function declarationToJSONSchema(declaration: string) {
 	for (const route of extractRootObjects(
 		declaration.replace(numberKey, '$1"$2":')
 	)) {
-		const source = route.replaceAll(/readonly/g, '')
+		const source = omitInternalRouteMembers(
+			route.replaceAll(/readonly/g, '')
+		)
 		let schema = Script(source) as any
 
 		if (schema.type !== 'object') {
@@ -292,6 +450,29 @@ function extractGenericBody(source: string, name: string) {
 	}
 
 	return null
+}
+
+// the `=>` of a function type itself, not one in its parameters,
+// eg. `({ status }: { status: (code) => ... }) => Return`
+function returnArrowOf(source: string) {
+	let depth = 0
+	let inString: string | null = null
+
+	for (let i = 0; i < source.length; i++) {
+		const char = source[i]
+
+		if (inString) {
+			if (char === inString) inString = null
+			continue
+		}
+
+		if (char === '"' || char === "'" || char === '`') inString = char
+		else if ('<{(['.includes(char)) depth++
+		else if (isClosing(char, source[i - 1])) depth--
+		else if (char === '>' && !depth) return i - 1
+	}
+
+	return -1
 }
 
 function splitGenerics(inner: string) {
@@ -466,17 +647,13 @@ function stripUndefined(schema: any): any {
 	return out
 }
 
-function resolveExternalRefs(
-	reference: AdditionalReference | undefined,
+type TypeChecker = NonNullable<ReturnType<typeof createTypeChecker>>
+
+function createTypeChecker(
 	sourceFile: string,
 	tsconfigPath: string,
 	projectRoot: string
-): AdditionalReference | undefined {
-	if (!reference) return reference
-
-	const refs = [...collectRefs(reference)]
-	if (!refs.length) return reference
-
+) {
 	let ts: typeof import('typescript') | undefined
 	try {
 		const createRequire =
@@ -485,7 +662,7 @@ function resolveExternalRefs(
 	} catch {
 		// typescript not importable
 	}
-	if (!ts) return reference
+	if (!ts) return
 
 	try {
 		const config = ts.sys.fileExists(tsconfigPath)
@@ -502,15 +679,90 @@ function resolveExternalRefs(
 			noEmit: true,
 			skipLibCheck: true
 		})
-		const checker = program.getTypeChecker()
 		const sf = program.getSourceFile(sourceFile)
-		if (!sf) return reference
+		if (!sf) return
 
-		const FLAGS =
-			ts.TypeFormatFlags.NoTruncation |
-			ts.TypeFormatFlags.UseStructuralFallback |
-			ts.TypeFormatFlags.InTypeAlias
+		return {
+			ts,
+			sf,
+			checker: program.getTypeChecker(),
+			FLAGS:
+				ts.TypeFormatFlags.NoTruncation |
+				ts.TypeFormatFlags.UseStructuralFallback |
+				ts.TypeFormatFlags.InTypeAlias
+		}
+	} catch (error) {
+		console.warn(
+			'[@elysia/openapi/gen] Failed to load TypeScript checker',
+			error
+		)
+	}
+}
 
+// `.get()` returns a deferred `AddRoute<...>`, which tsc emits unexpanded for
+// the last route of a chain. The checker expands it like the routes before it
+function expandLastRoute(
+	declaration: string,
+	instanceName: string | undefined,
+	typeChecker: () => TypeChecker | undefined
+) {
+	const name = [
+		...declaration.matchAll(
+			/([\w$]+):\s*(?:import\([^)]*\)\.)?AddRoute</g
+		)
+	]
+		.map((match) => match[1])
+		.find((name) => !instanceName || name === instanceName)
+	if (!name) return
+
+	const typescript = typeChecker()
+	if (!typescript) return
+
+	const { ts, sf, checker, FLAGS } = typescript
+	const instance =
+		checker
+			.getSymbolsInScope(sf, ts.SymbolFlags.Value)
+			.find((symbol) => symbol.getName() === name) ??
+		// `export default new Elysia()...` is emitted as `_default`
+		(name === '_default'
+			? checker
+					.getExportsOfModule(checker.getSymbolAtLocation(sf)!)
+					.find((symbol) => symbol.getName() === 'default')
+			: undefined)
+
+	// the type of an exported `const` is on its export symbol, not its local one
+	const routes =
+		instance &&
+		checker
+			.getTypeOfSymbol(checker.getExportSymbolOfSymbol(instance))
+			.getProperty('~Routes')
+	if (!routes) return
+
+	// printed from the source file, Elysia's internal aliases expand like
+	// they do in the emitted declaration
+	return (
+		checker
+			.typeToString(checker.getTypeOfSymbol(routes), sf, FLAGS)
+			// a no-op `& {}`, eg. params `{ id: string; } & {}`, would be an `allOf`
+			.replace(/\s*&\s*\{\s*\}/g, '')
+	)
+}
+
+function resolveExternalRefs(
+	reference: AdditionalReference | undefined,
+	typeChecker: () => TypeChecker | undefined
+): AdditionalReference | undefined {
+	if (!reference) return reference
+
+	const refs = [...collectRefs(reference)]
+	if (!refs.length) return reference
+
+	const typescript = typeChecker()
+	if (!typescript) return reference
+
+	const { ts, sf, checker, FLAGS } = typescript
+
+	try {
 		const inScope = checker.getSymbolsInScope(
 			sf,
 			ts.SymbolFlags.Type | ts.SymbolFlags.Alias
@@ -565,7 +817,9 @@ function resolveExternalRefs(
 
 export function declarationToReference(
 	declaration: string,
-	instanceName?: string
+	instanceName?: string,
+	// the routes map, already expanded by the checker
+	expandedRoutes?: string
 ): AdditionalReference | undefined {
 	let scope = declaration
 	if (instanceName) {
@@ -583,6 +837,9 @@ export function declarationToReference(
 		} catch {
 			// skip definitions Script can't parse; they stay as `$ref`
 		}
+
+	if (expandedRoutes)
+		return resolveTypeRefs(declarationToJSONSchema(expandedRoutes), context)
 
 	const addRouteBody = extractGenericBody(scope, 'AddRoute')
 	if (addRouteBody) {
@@ -604,7 +861,7 @@ export function declarationToReference(
 				response: {}
 			}
 
-			const arrow = handler.indexOf('=>')
+			const arrow = returnArrowOf(handler)
 			if (arrow !== -1) {
 				const returnType = handler
 					.slice(arrow + 2)
@@ -875,18 +1132,26 @@ export const fromTypes =
 			if (!debug && fs.existsSync(tmpRoot))
 				fs.rmSync(tmpRoot, { recursive: true, force: true })
 
-			const reference = declarationToReference(declaration, instanceName)
+			// created on first use, only if needed
+			let typescript: TypeChecker | undefined
+			const typeChecker = () =>
+				(typescript ??= createTypeChecker(
+					src,
+					tsconfigPath.startsWith('/')
+						? tsconfigPath
+						: join(projectRoot, tsconfigPath),
+					projectRoot
+				))
+
+			const reference = declarationToReference(
+				declaration,
+				instanceName,
+				expandLastRoute(declaration, instanceName, typeChecker)
+			)
 
 			// Resolve any `$ref` the parser couldn't (imported/generic types)
 			// via the TypeScript checker
-			return resolveExternalRefs(
-				reference,
-				src,
-				tsconfigPath.startsWith('/')
-					? tsconfigPath
-					: join(projectRoot, tsconfigPath),
-				projectRoot
-			)
+			return resolveExternalRefs(reference, typeChecker)
 		} catch (error) {
 			console.warn(
 				'[@elysia/openapi/gen] Failed to generate OpenAPI schema'
