@@ -119,6 +119,48 @@ describe('Gen > Type Gen', () => {
 		expect(reference['/second'].post).not.toHaveProperty('error')
 	})
 
+	// a route mounted with `.use()` has its `HTTPError` classes expanded,
+	// with method signatures TypeBox can't parse
+	it('keeps routes when errors are expanded HTTPError classes', () => {
+		const reference = declarationToJSONSchema(`{
+			id: {
+				":id": {
+					get: {
+						body: {};
+						params: {
+							id: string;
+						};
+						query: {};
+						headers: {};
+						response: {
+							200: \`bought \${string}\`;
+							409: {
+								code: "OUT_OF_STOCK";
+								detail: "The item is out of stock";
+								status: 409;
+							};
+						};
+						error: {
+							readonly detail: "The item is out of stock";
+							name: string;
+							readonly code: "OUT_OF_STOCK";
+							readonly status: 409;
+							value?(): import("elysia/types").MaybePromise<unknown>;
+							extension?(): Record<string, unknown>;
+						};
+					};
+				};
+			};
+		}`)
+
+		expect(Object.keys(reference)).toEqual(['/id/:id'])
+		expect(Object.keys(reference['/id/:id'].get.response)).toEqual([
+			'200',
+			'409'
+		])
+		expect(reference['/id/:id'].get).not.toHaveProperty('error')
+	})
+
 	it('preserves digits in route names while quoting status codes', () => {
 		const reference = serializable(
 			declarationToJSONSchema(`{

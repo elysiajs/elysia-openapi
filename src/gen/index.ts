@@ -332,7 +332,7 @@ const omitInternalRouteMembers = (route: string) => {
 	return normalized + route.slice(at)
 }
 
-const omitImportedRouteError = (route: string) => {
+function omitRouteError(route: string) {
 	const objects = scanRouteObjects(route)
 	const errorOf = (object: RouteObject) =>
 		object.fields.find((field) => field.name === 'error')!
@@ -344,11 +344,7 @@ const omitImportedRouteError = (route: string) => {
 			for (let parent = object.parent; parent; parent = parent.parent)
 				if (isRoute(parent)) return false
 
-			const error = errorOf(object)
-			return route
-				.slice(error.colon + 1, error.end)
-				.trimStart()
-				.startsWith('import(')
+			return true
 		})
 		.map((object) => ({
 			start: errorOf(object).colon + 1,
@@ -378,7 +374,7 @@ export function declarationToJSONSchema(declaration: string) {
 
 		if (schema.type !== 'object') {
 			// TypeBox can't parse error
-			const normalized = omitImportedRouteError(source)
+			const normalized = omitRouteError(source)
 			if (normalized !== source) schema = Script(normalized) as any
 		}
 
