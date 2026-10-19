@@ -9,7 +9,7 @@ describe('Guard Schema Flattening', () => {
 		const app = new Elysia()
 			.use(openapi())
 			.guard(
-				{ schema: 'standalone', headers: t.Object({
+				{ schema: 'merge', headers: t.Object({
 						authorization: t.String()
 					}) },
 				(app) =>
@@ -53,7 +53,7 @@ describe('Guard Schema Flattening', () => {
 				})
 			})
 			.guard(
-				{ schema: 'standalone', response: {
+				{ schema: 'merge', response: {
 						401: 'ErrorResponse',
 						500: 'ErrorResponse'
 					} },

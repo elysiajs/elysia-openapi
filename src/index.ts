@@ -121,8 +121,7 @@ export const openapi = <
 
 	return (host: AnyElysia) => {
 		const plugin = new Elysia({
-			name: '@elysia/openapi',
-			introspect: provider !== null
+			name: '@elysia/openapi'
 		})
 
 		if (provider === null) return host.use(plugin)

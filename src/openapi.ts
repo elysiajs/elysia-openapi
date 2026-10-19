@@ -508,7 +508,7 @@ const flattenRoutes = (
 	routes: any[],
 	vendors?: MapJsonSchema,
 	openapiVersion: OpenAPIVersion = '3.1.2'
-): any[] =>
+) =>
 	routes.map((route) => {
 		if (!route.hooks?.schemas?.length) return route
 

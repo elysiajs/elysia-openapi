@@ -638,8 +638,12 @@ describe('Gen > Type Gen', () => {
 						},
 						'422': {
 							type: 'object',
-							required: ['type', 'title', 'status', 'on'],
+							required: ['type', 'code', 'title', 'status', 'on'],
 							properties: {
+								code: {
+									type: 'string',
+									const: 'validation'
+								},
 								type: {
 									type: 'string',
 									const: 'validation'
@@ -694,8 +698,12 @@ describe('Gen > Type Gen', () => {
 						},
 						'422': {
 							type: 'object',
-							required: ['type', 'title', 'status', 'on'],
+							required: ['type', 'code', 'title', 'status', 'on'],
 							properties: {
+								code: {
+									type: 'string',
+									const: 'validation'
+								},
 								type: {
 									type: 'string',
 									const: 'validation'
