@@ -24,29 +24,6 @@ const normalizeOpenAPIVersion = (version: string): OpenAPIVersion => {
 	return DEFAULT_OPENAPI_VERSION
 }
 
-function isCloudflareWorker() {
-	try {
-		// Check for the presence of caches.default, which is a global in Workers
-		if (
-			// @ts-ignore
-			typeof caches !== 'undefined' &&
-			// @ts-ignore
-			typeof caches.default !== 'undefined'
-		)
-			return true
-
-		// @ts-ignore
-		if (typeof WebSocketPair !== 'undefined') {
-			return true
-		}
-	} catch (e) {
-		// If accessing these globals throws an error, it's likely not a Worker
-		return false
-	}
-
-	return false
-}
-
 /**
  * Plugin for [elysia](https://github.com/elysiajs/elysia) that auto-generate OpenAPI documentation page.
  *
@@ -165,7 +142,7 @@ export const openapi = <
 
 		return app.get(
 			path,
-			embedSpec || isCloudflareWorker() ? page : page(),
+			page,
 			{
 				detail: {
 					hide: true

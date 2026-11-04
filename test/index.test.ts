@@ -17,6 +17,18 @@ describe('Swagger', () => {
 		expect(res.status).toBe(200)
 	})
 
+	it('show OpenAPI page repeatedly in dynamic mode', async () => {
+		const app = new Elysia({ aot: false }).use(openapi())
+
+		await app.modules
+
+		for (let requestNumber = 0; requestNumber < 2; requestNumber++) {
+			const res = await app.handle(req('/openapi'))
+			expect(res.status).toBe(200)
+			expect(await res.text()).toContain('<title>Elysia Documentation</title>')
+		}
+	})
+
 	it('returns a valid OpenAPI json config', async () => {
 		const app = new Elysia().use(openapi())
 
