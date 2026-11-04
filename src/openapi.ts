@@ -404,7 +404,7 @@ const mergeStandaloneValidators = (
 		{
 			response: {}
 			return: {}
-			resolve: {}
+			derive: {}
 		},
 		SingletonBase,
 		[]
