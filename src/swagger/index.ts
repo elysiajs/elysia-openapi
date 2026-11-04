@@ -1,6 +1,7 @@
 import { OpenAPIV3 } from 'openapi-types'
 import { ElysiaOpenAPIConfig } from '../types'
 import { SwaggerUIOptions } from './types'
+import { html, jsonForScript, renderHtml } from '../html'
 
 type DateTimeSchema = {
 	type: 'string'
@@ -86,6 +87,7 @@ export const SwaggerUIRender = (
 	)
 
 	const options: OpenAPIV3.Document = JSON.parse(stringifiedOptions)
+	const scriptOptions = jsonForScript(options)
 
 	if (options.components && options.components.schemas)
 		options.components.schemas = Object.fromEntries(
@@ -95,7 +97,7 @@ export const SwaggerUIRender = (
 			])
 		)
 
-	return `<!DOCTYPE html>
+	return renderHtml(html`<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
@@ -112,7 +114,7 @@ export const SwaggerUIRender = (
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦊</text></svg>" />
     ${
 		autoDarkMode && typeof theme === 'string'
-			? `<style>
+			? html`<style>
 @media (prefers-color-scheme: dark) {
     body {
         background-color: #222;
@@ -131,8 +133,8 @@ export const SwaggerUIRender = (
 	}
     ${
 		typeof theme === 'string'
-			? `<link rel="stylesheet" href="${theme}" />`
-			: `<link rel="stylesheet" media="(prefers-color-scheme: light)" href="${theme.light}" />
+			? html`<link rel="stylesheet" href="${theme}" />`
+			: html`<link rel="stylesheet" media="(prefers-color-scheme: light)" href="${theme.light}" />
 <link rel="stylesheet" media="(prefers-color-scheme: dark)" href="${theme.dark}" />`
 	}
 </head>
@@ -141,9 +143,9 @@ export const SwaggerUIRender = (
     <script src="${cdn}" crossorigin></script>
     <script>
         window.onload = () => {
-            window.ui = SwaggerUIBundle(${stringifiedOptions});
+            window.ui = SwaggerUIBundle(${scriptOptions});
         };
     </script>
 </body>
-</html>`
+</html>`)
 }

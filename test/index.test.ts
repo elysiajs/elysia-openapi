@@ -211,6 +211,97 @@ describe('Swagger', () => {
 		).toBe(true)
 	})
 
+	it('escapes documentation metadata in both HTML providers without changing the JSON spec', async () => {
+		const title = '</title><script>alert("title")</script> & API'
+		const description = '"><script>alert("description")</script><img src=x onerror=alert(\'alternate\')> & hello'
+
+		for (const provider of ['swagger-ui', 'scalar'] as const) {
+			const app = new Elysia().use(
+				openapi({
+					provider,
+					documentation: { info: { title, description, version: '1.0.0' } }
+				})
+			)
+
+			await app.modules
+
+			const html = await app.handle(req('/openapi')).then((x) => x.text())
+			const spec = await app.handle(req('/openapi/json')).then((x) => x.json())
+
+			expect(html).toContain(
+				'<title>&lt;/title&gt;&lt;script&gt;alert(&quot;title&quot;)&lt;/script&gt; &amp; API</title>'
+			)
+			expect(html).toContain(
+				'content="&quot;&gt;&lt;script&gt;alert(&quot;description&quot;)&lt;/script&gt;&lt;img src=x onerror=alert(&#x27;alternate&#x27;)&gt; &amp; hello"'
+			)
+			expect(html).not.toContain('<script>alert("title")</script>')
+			expect(html).not.toContain('<script>alert("description")</script>')
+			expect(html).not.toContain('<img src=x onerror=')
+			expect(spec.info.title).toBe(title)
+			expect(spec.info.description).toBe(description)
+		}
+	})
+
+	it('keeps Swagger UI options inside the inline script', async () => {
+		const filter = '</script><script>alert("options")</script>'
+		const app = new Elysia().use(
+			openapi({ provider: 'swagger-ui', swagger: { filter } })
+		)
+
+		await app.modules
+
+		const html = await app.handle(req('/openapi')).then((x) => x.text())
+		const options = html.match(/SwaggerUIBundle\((.*)\);/)?.[1]
+
+		expect(options).toBeDefined()
+		expect(options).not.toContain('</script>')
+		expect(JSON.parse(options!)).toMatchObject({ filter })
+	})
+
+	it('escapes configured resource URLs in HTML attributes', async () => {
+		const cdn = '/bundle.js?x=1&y=2" onerror="alert(1)'
+		const theme = '/theme.css?x=1&y=2" onload="alert(1)'
+		const app = new Elysia().use(
+			openapi({ provider: 'swagger-ui', swagger: { cdn, theme } })
+		)
+
+		await app.modules
+
+		const html = await app.handle(req('/openapi')).then((x) => x.text())
+
+		expect(html).toContain('src="/bundle.js?x=1&amp;y=2&quot; onerror=&quot;alert(1)"')
+		expect(html).toContain('href="/theme.css?x=1&amp;y=2&quot; onload=&quot;alert(1)"')
+		expect(html).not.toContain(`src="${cdn}"`)
+	})
+
+	it('keeps Scalar configuration inside its data attribute', async () => {
+		const url = "'><script>alert('config')</script>"
+		const app = new Elysia().use(
+			openapi({ provider: 'scalar', scalar: { url }, embedSpec: true })
+		)
+
+		await app.modules
+
+		const html = await app.handle(req('/openapi')).then((x) => x.text())
+
+		expect(html).not.toContain(url)
+		expect(html).toContain('&#x27;&gt;&lt;script&gt;alert(&#x27;config&#x27;)&lt;/script&gt;')
+	})
+
+	it('keeps custom CSS inside the Scalar style element', async () => {
+		const customCss = 'body::before { content: "</style><script>alert(1)</script> &"; }'
+		const app = new Elysia().use(
+			openapi({ provider: 'scalar', scalar: { customCss } })
+		)
+
+		await app.modules
+
+		const html = await app.handle(req('/openapi')).then((x) => x.text())
+
+		expect(html).not.toContain('</style><script>alert(1)</script>')
+		expect(html).toContain('content: "\\00003c/style>\\00003cscript>alert(1)\\00003c/script> &";')
+	})
+
 	it('use custom path', async () => {
 		const app = new Elysia().use(
 			openapi({
