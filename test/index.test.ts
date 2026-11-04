@@ -199,7 +199,7 @@ describe('Swagger', () => {
 	it('keeps Scalar configuration inside its data attribute', async () => {
 		const url = "'><script>alert('config')</script>"
 		const app = new Elysia().use(
-			openapi({ provider: 'scalar', scalar: { url }, embedSpec: true })
+			openapi({ provider: 'scalar', scalar: { url } as any, embedSpec: true })
 		)
 
 		await app.modules
@@ -213,7 +213,7 @@ describe('Swagger', () => {
 	it('keeps custom CSS inside the Scalar style element', async () => {
 		const customCss = 'body::before { content: "</style><script>alert(1)</script> &"; }'
 		const app = new Elysia().use(
-			openapi({ provider: 'scalar', scalar: { customCss } })
+			openapi({ provider: 'scalar', scalar: { customCss } as any })
 		)
 
 		await app.modules

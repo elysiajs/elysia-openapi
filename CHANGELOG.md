@@ -1,3 +1,7 @@
+# 1.4.17 - 4 Nov 2026
+Security:
+- Escape OpenAPI documentation values in Swagger UI and Scalar HTML, including inline configuration and custom CSS.
+
 # 1.4.16 - 2 Sep 2026
 Improvement:
 - [#349](https://github.com/elysiajs/elysia-openapi/pull/349) add support for regex path scope by @Jussinevavuori
