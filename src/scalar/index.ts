@@ -1,5 +1,6 @@
 import type { OpenAPIV3 } from 'openapi-types'
 import { ElysiaOpenAPIConfig } from '../types'
+import { html, renderHtml, styleElement } from '../html'
 
 const elysiaCSS = `.light-mode {
   --scalar-color-1: oklch(43.5% 0.029 321.78);
@@ -127,7 +128,7 @@ export const ScalarRender = (
 	info: OpenAPIV3.InfoObject,
 	config: NonNullable<ElysiaOpenAPIConfig['scalar']>,
 	embedSpec?: string
-) => `<!doctype html>
+) => renderHtml(html`<!doctype html>
 <html>
   <head>
     <title>${info.title}</title>
@@ -148,9 +149,7 @@ export const ScalarRender = (
         margin: 0;
       }
     </style>
-    <style>
-      ${config.customCss ?? elysiaCSS}
-    </style>
+    ${styleElement(config.customCss ?? elysiaCSS)}
   </head>
   <body>
     <script
@@ -167,4 +166,4 @@ export const ScalarRender = (
     </script>
     <script src="${config.cdn}" crossorigin></script>
   </body>
-</html>`
+</html>`)
