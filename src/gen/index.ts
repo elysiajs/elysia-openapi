@@ -1189,9 +1189,8 @@ function resolveTypeScriptBin(
 	try {
 		const createRequire =
 			process.getBuiltinModule?.('module')?.createRequire
-		const resolved = createRequire?.(join(projectRoot, 'package.json'))?.(
-			'typescript/package.json'
-		) as string | undefined
+		const req = createRequire?.(join(projectRoot, 'package.json'))
+		const resolved = req?.resolve('typescript/package.json')
 		if (resolved) {
 			const root = resolved
 				.replace(/\\/g, '/')
