@@ -643,22 +643,54 @@ function stripUndefined(schema: any): any {
 	return out
 }
 
-type TypeChecker = NonNullable<ReturnType<typeof createTypeChecker>>
+interface TypeParameterDefault {
+	name: string
+	typeString: string
+}
+
+interface DeclaredType {
+	typeString: string
+	parameterDefaults: TypeParameterDefault[]
+}
+
+interface TypeSession {
+	routesOf(name: string): string | undefined
+	declaredTypes(names: string[]): Record<string, DeclaredType>
+	dispose(): void
+}
+
+const emptyIntersection = /\s*&\s*\{\s*\}/g
+
+function loadTypeScript(projectRoot: string) {
+	try {
+		const createRequire =
+			process.getBuiltinModule?.('module')?.createRequire
+		return createRequire?.(join(projectRoot, 'index.js'))?.('typescript')
+	} catch {
+		return undefined
+	}
+}
+
+function hasClassicCompiler(ts: any) {
+	return (
+		!!ts &&
+		typeof ts.createProgram === 'function' &&
+		typeof ts.sys?.fileExists === 'function'
+	)
+}
 
 function createTypeChecker(
 	sourceFile: string,
 	tsconfigPath: string,
 	projectRoot: string
-) {
-	let ts: typeof import('typescript') | undefined
-	try {
-		const createRequire =
-			process.getBuiltinModule?.('module')?.createRequire
-		ts = createRequire?.(join(projectRoot, 'index.js'))?.('typescript')
-	} catch {
-		// typescript not importable
-	}
+): TypeSession | undefined {
+	const ts = loadTypeScript(projectRoot)
 	if (!ts) return
+
+	// TypeScript 7's `typescript` entry only exposes version metadata.
+	// The checker lives on `typescript/unstable/sync`.
+	if (!hasClassicCompiler(ts))
+		return createNativeTypeSession(sourceFile, tsconfigPath, projectRoot)
 
 	try {
 		const config = ts.sys.fileExists(tsconfigPath)
@@ -678,14 +710,103 @@ function createTypeChecker(
 		const sf = program.getSourceFile(sourceFile)
 		if (!sf) return
 
+		const checker = program.getTypeChecker()
+		const FLAGS =
+			ts.TypeFormatFlags.NoTruncation |
+			ts.TypeFormatFlags.UseStructuralFallback |
+			ts.TypeFormatFlags.InTypeAlias
+
 		return {
-			ts,
-			sf,
-			checker: program.getTypeChecker(),
-			FLAGS:
-				ts.TypeFormatFlags.NoTruncation |
-				ts.TypeFormatFlags.UseStructuralFallback |
-				ts.TypeFormatFlags.InTypeAlias
+			dispose() {},
+			routesOf(name) {
+				const instance =
+					checker
+						.getSymbolsInScope(sf, ts.SymbolFlags.Value)
+						.find((symbol: any) => symbol.getName() === name) ??
+					// `export default new Elysia()...` is emitted as `_default`
+					(name === '_default'
+						? checker
+								.getExportsOfModule(
+									checker.getSymbolAtLocation(sf)!
+								)
+								.find(
+									(symbol: any) =>
+										symbol.getName() === 'default'
+								)
+						: undefined)
+
+				// the type of an exported `const` is on its export symbol, not its local one
+				const routes =
+					instance &&
+					checker
+						.getTypeOfSymbol(
+							checker.getExportSymbolOfSymbol(instance)
+						)
+						.getProperty('~Routes')
+				if (!routes) return
+
+				// printed from the source file, Elysia's internal aliases expand like
+				// they do in the emitted declaration
+				return checker
+					.typeToString(
+						checker.getTypeOfSymbol(routes),
+						sf,
+						FLAGS
+					)
+					.replace(emptyIntersection, '')
+			},
+			declaredTypes(names: string[]) {
+				const out: Record<string, DeclaredType> = Object.create(null)
+
+				const one = (name: string): DeclaredType | undefined => {
+					let symbol = checker
+						.getSymbolsInScope(
+							sf,
+							ts.SymbolFlags.Type | ts.SymbolFlags.Alias
+						)
+						.find((s: any) => s.getName() === name)
+					if (!symbol) return
+					if (symbol.getFlags() & ts.SymbolFlags.Alias)
+						symbol = checker.getAliasedSymbol(symbol)
+
+					const parameterDefaults: TypeParameterDefault[] = []
+					for (const declaration of symbol.getDeclarations() ?? [])
+						for (const parameter of (declaration as any)
+							.typeParameters ?? []) {
+							const defaultNode =
+								parameter.default ?? parameter.defaultType
+							if (!defaultNode || !parameter.name?.text) continue
+							try {
+								parameterDefaults.push({
+									name: parameter.name.text,
+									typeString: checker.typeToString(
+										checker.getTypeFromTypeNode(
+											defaultNode
+										),
+										undefined,
+										FLAGS
+									)
+								})
+							} catch {}
+						}
+
+					return {
+						typeString: checker.typeToString(
+							checker.getDeclaredTypeOfSymbol(symbol),
+							undefined,
+							FLAGS
+						),
+						parameterDefaults
+					}
+				}
+
+				for (const name of names) {
+					const declared = one(name)
+					if (declared) out[name] = declared
+				}
+
+				return out
+			}
 		}
 	} catch (error) {
 		console.warn(
@@ -695,12 +816,216 @@ function createTypeChecker(
 	}
 }
 
+const nativeCheckerWorker = `
+const { createRequire } = require('module')
+const { join } = require('path')
+const fs = require('fs')
+
+const input = JSON.parse(process.env.ELYSIA_OPENAPI_TS7_REQUEST || '{}')
+const req = createRequire(join(input.projectRoot, 'index.js'))
+const { API, SymbolFlags, NodeBuilderFlags } = req('typescript/unstable/async')
+const FLAGS =
+	NodeBuilderFlags.NoTruncation |
+	NodeBuilderFlags.UseStructuralFallback |
+	NodeBuilderFlags.InTypeAlias
+const emptyIntersection = /\\s*&\\s*\\{\\s*\\}/g
+
+async function routesOf(checker, sf, name) {
+	let symbol
+	if (name === '_default') {
+		const moduleSymbol = await checker.getSymbolAtLocation(sf)
+		if (!moduleSymbol) return
+		const exported = await checker.getExportsOfModule(moduleSymbol)
+		symbol = exported.find((item) => item.name === 'default')
+	} else {
+		symbol = await checker.resolveName(name, SymbolFlags.Value, sf)
+	}
+	if (!symbol) return
+
+	const exported = (await symbol.getExportSymbol()) ?? symbol
+	const type = await checker.getTypeOfSymbol(exported)
+	if (!type) return
+	const routes = await checker.getPropertyOfType(type, '~Routes')
+	if (!routes) return
+	const routesType = await checker.getTypeOfSymbol(routes)
+	if (!routesType) return
+
+	return (await checker.typeToString(routesType, sf, FLAGS)).replace(
+		emptyIntersection,
+		''
+	)
+}
+
+async function declaredType(checker, project, sf, name) {
+	let symbol = await checker.resolveName(
+		name,
+		SymbolFlags.Type | SymbolFlags.Alias,
+		sf
+	)
+	if (!symbol) return
+	if (symbol.flags & SymbolFlags.Alias)
+		symbol = await checker.getAliasedSymbol(symbol)
+
+	const declared = await checker.getDeclaredTypeOfSymbol(symbol)
+	if (!declared) return
+
+	const parameterDefaults = []
+	for (const handle of symbol.declarations ?? []) {
+		const declaration = await handle.resolve(project)
+		for (const parameter of declaration?.typeParameters ?? []) {
+			const defaultNode = parameter.default ?? parameter.defaultType
+			if (!defaultNode || !parameter.name?.text) continue
+			try {
+				const defaultType = await checker.getTypeFromTypeNode(defaultNode)
+				parameterDefaults.push({
+					name: parameter.name.text,
+					typeString: await checker.typeToString(
+						defaultType,
+						undefined,
+						FLAGS
+					)
+				})
+			} catch {}
+		}
+	}
+
+	return {
+		typeString: await checker.typeToString(declared, undefined, FLAGS),
+		parameterDefaults
+	}
+}
+
+async function main() {
+	const api = new API({ cwd: input.projectRoot })
+	try {
+		const snapshot = await api.updateSnapshot({
+			openFiles: [input.sourceFile],
+			openProjects:
+				input.tsconfigPath && fs.existsSync(input.tsconfigPath)
+					? [input.tsconfigPath]
+					: undefined
+		})
+		const project =
+			(await snapshot.getDefaultProjectForFile(input.sourceFile)) ??
+			(input.tsconfigPath
+				? await snapshot.getProject(input.tsconfigPath)
+				: undefined)
+		const sf =
+			project && (await project.program.getSourceFile(input.sourceFile))
+		const result = { types: {} }
+		if (project && sf) {
+			if (input.routeName)
+				result.routes = await routesOf(project.checker, sf, input.routeName)
+			for (const name of input.typeNames ?? []) {
+				const declared = await declaredType(
+					project.checker,
+					project,
+					sf,
+					name
+				)
+				if (declared) result.types[name] = declared
+			}
+		}
+		await snapshot.dispose()
+		process.stdout.write(JSON.stringify(result))
+	} finally {
+		await api.close()
+	}
+}
+
+main().catch((error) => {
+	console.error(error && error.stack ? error.stack : error)
+	process.exit(1)
+})
+`
+
+interface NativeQuery {
+	routeName?: string
+	typeNames?: string[]
+}
+
+function createNativeTypeSession(
+	sourceFile: string,
+	tsconfigPath: string,
+	projectRoot: string
+): TypeSession | undefined {
+	const fs = process.getBuiltinModule?.('fs')
+	const os = process.getBuiltinModule?.('os')
+	const childProcess = process.getBuiltinModule?.('child_process')
+	if (!fs || !os || !childProcess?.spawnSync || !process.execPath) return
+
+	// TypeScript 7's sync API reads Node pipe fds (`stdout._handle`), which
+	// Bun does not expose. Ask the async API from a child process instead.
+	const worker = join(os.tmpdir(), `elysia-openapi-ts7-${process.pid}.cjs`)
+	fs.writeFileSync(worker, nativeCheckerWorker)
+	let warned = false
+
+	const query = (request: NativeQuery) => {
+		const child = childProcess.spawnSync(process.execPath, [worker], {
+			cwd: projectRoot,
+			encoding: 'utf8',
+			env: {
+				...process.env,
+				ELYSIA_OPENAPI_TS7_REQUEST: JSON.stringify({
+					projectRoot,
+					sourceFile,
+					tsconfigPath,
+					...request
+				})
+			}
+		})
+		if (child.status !== 0) {
+			const detail = (child.stderr || child.stdout || child.error || '')
+				.toString()
+				.trim()
+			throw new Error(detail || 'TypeScript 7 checker exited')
+		}
+		return JSON.parse(child.stdout || '{}') as {
+			routes?: string
+			types?: Record<string, DeclaredType>
+		}
+	}
+
+	const fail = (error: unknown) => {
+		if (warned) return
+		warned = true
+		console.warn(
+			'[@elysia/openapi/gen] Failed to load TypeScript checker',
+			error
+		)
+	}
+
+	return {
+		dispose() {
+			try {
+				fs.rmSync(worker, { force: true })
+			} catch {}
+		},
+		routesOf(name) {
+			try {
+				return query({ routeName: name }).routes
+			} catch (error) {
+				fail(error)
+			}
+		},
+		declaredTypes(names) {
+			if (!names.length) return Object.create(null)
+			try {
+				return query({ typeNames: names }).types ?? Object.create(null)
+			} catch (error) {
+				fail(error)
+				return Object.create(null)
+			}
+		}
+	}
+}
+
 // `.get()` returns a deferred `AddRoute<...>`, which tsc emits unexpanded for
 // the last route of a chain. The checker expands it like the routes before it
 function expandLastRoute(
 	declaration: string,
 	instanceName: string | undefined,
-	typeChecker: () => TypeChecker | undefined
+	typeChecker: () => TypeSession | undefined
 ) {
 	const name = [
 		...declaration.matchAll(
@@ -711,91 +1036,42 @@ function expandLastRoute(
 		.find((name) => !instanceName || name === instanceName)
 	if (!name) return
 
-	const typescript = typeChecker()
-	if (!typescript) return
-
-	const { ts, sf, checker, FLAGS } = typescript
-	const instance =
-		checker
-			.getSymbolsInScope(sf, ts.SymbolFlags.Value)
-			.find((symbol) => symbol.getName() === name) ??
-		// `export default new Elysia()...` is emitted as `_default`
-		(name === '_default'
-			? checker
-					.getExportsOfModule(checker.getSymbolAtLocation(sf)!)
-					.find((symbol) => symbol.getName() === 'default')
-			: undefined)
-
-	// the type of an exported `const` is on its export symbol, not its local one
-	const routes =
-		instance &&
-		checker
-			.getTypeOfSymbol(checker.getExportSymbolOfSymbol(instance))
-			.getProperty('~Routes')
-	if (!routes) return
-
-	// printed from the source file, Elysia's internal aliases expand like
-	// they do in the emitted declaration
-	return (
-		checker
-			.typeToString(checker.getTypeOfSymbol(routes), sf, FLAGS)
-			// a no-op `& {}`, eg. params `{ id: string; } & {}`, would be an `allOf`
-			.replace(/\s*&\s*\{\s*\}/g, '')
-	)
+	// a no-op `& {}`, eg. params `{ id: string; } & {}`, would be an `allOf`
+	return typeChecker()?.routesOf(name)
 }
 
 function resolveExternalRefs(
 	reference: AdditionalReference | undefined,
-	typeChecker: () => TypeChecker | undefined
+	typeChecker: () => TypeSession | undefined
 ): AdditionalReference | undefined {
 	if (!reference) return reference
 
 	const refs = [...collectRefs(reference)]
 	if (!refs.length) return reference
 
-	const typescript = typeChecker()
-	if (!typescript) return reference
-
-	const { ts, sf, checker, FLAGS } = typescript
+	const session = typeChecker()
+	if (!session) return reference
 
 	try {
-		const inScope = checker.getSymbolsInScope(
-			sf,
-			ts.SymbolFlags.Type | ts.SymbolFlags.Alias
-		)
-
+		const declaredTypes = session.declaredTypes(refs)
 		const map: Record<string, any> = Object.create(null)
 		for (const name of refs) {
-			let symbol = inScope.find((s) => s.getName() === name)
-			if (!symbol) continue
-			if (symbol.getFlags() & ts.SymbolFlags.Alias)
-				symbol = checker.getAliasedSymbol(symbol)
-
-			const declared = checker.getDeclaredTypeOfSymbol(symbol)
-			const typeString = checker.typeToString(declared, undefined, FLAGS)
+			const declared = declaredTypes[name]
+			if (!declared) continue
 
 			// generic type aliases keep their parameter names; resolve those to
 			// the parameter defaults (Script's module form substitutes them)
 			const context: Record<string, any> = Object.create(null)
-			for (const declaration of symbol.getDeclarations() ?? [])
-				for (const parameter of (declaration as any).typeParameters ??
-					[])
-					if (parameter.default)
-						try {
-							context[parameter.name.text] = Script(
-								checker.typeToString(
-									checker.getTypeFromTypeNode(
-										parameter.default
-									),
-									undefined,
-									FLAGS
-								)
-							)
-						} catch {}
+			for (const parameter of declared.parameterDefaults)
+				try {
+					context[parameter.name] = Script(parameter.typeString)
+				} catch {}
 
 			try {
 				map[name] = stripUndefined(
-					JSON.parse(JSON.stringify(Script(context, typeString)))
+					JSON.parse(
+						JSON.stringify(Script(context, declared.typeString))
+					)
 				)
 			} catch {}
 		}
@@ -903,6 +1179,66 @@ export function declarationToReference(
 }
 
 /**
+ * `tsc` is not on PATH when the app is started directly (`bun src/index.ts`).
+ * Resolve the project's TypeScript compiler, walking up for monorepos.
+ */
+function resolveTypeScriptBin(
+	projectRoot: string,
+	fs: { existsSync(path: string): boolean }
+): string | undefined {
+	try {
+		const createRequire =
+			process.getBuiltinModule?.('module')?.createRequire
+		const req = createRequire?.(join(projectRoot, 'package.json'))
+		const resolved = req?.resolve('typescript/package.json')
+		if (resolved) {
+			const root = resolved
+				.replace(/\\/g, '/')
+				.replace(/\/package\.json$/, '')
+			const bin = join(root, 'bin', 'tsc')
+			if (fs.existsSync(bin)) return bin
+		}
+	} catch {
+		// typescript is not installed where this project resolves packages
+	}
+
+	let dir = projectRoot.replace(/\\/g, '/')
+	for (let i = 0; i < 8; i++) {
+		const bin = join(dir, 'node_modules', 'typescript', 'bin', 'tsc')
+		if (fs.existsSync(bin)) return bin
+		const parent = dir.slice(0, dir.lastIndexOf('/'))
+		if (!parent || parent === dir) break
+		dir = parent
+	}
+
+	return undefined
+}
+
+/**
+ * Type packages such as `@types/bun` (`"types": ["bun"]`) are resolved from
+ * the tsconfig's directory. The generated config lives in a temp folder, so
+ * point `typeRoots` at the project (and ancestor) `node_modules`.
+ */
+function resolveTypeRoots(
+	projectRoot: string,
+	fs: { existsSync(path: string): boolean }
+): string[] {
+	const roots: string[] = []
+	let dir = projectRoot.replace(/\\/g, '/')
+
+	for (let i = 0; i < 8; i++) {
+		const types = join(dir, 'node_modules', '@types')
+		// `"types": ["bun"]` resolves to `@types/bun`
+		if (fs.existsSync(types)) roots.push(types)
+		const parent = dir.slice(0, dir.lastIndexOf('/'))
+		if (!parent || parent === dir) break
+		dir = parent
+	}
+
+	return roots
+}
+
+/**
  * Auto generate OpenAPI schema from Elysia instance
  *
  * It's expected that this command should run in project root
@@ -948,6 +1284,9 @@ export const fromTypes =
 			throw new Error(
 				'[@elysia/openapi/gen] `fromTypes` require `fs` module which is not available in this environment'
 			)
+
+		// created on first use, only if a route still needs the checker
+		let typescript: TypeSession | undefined
 
 		try {
 			if (
@@ -1015,26 +1354,31 @@ export const fromTypes =
 					rootDir = rootDir.replace(/\\/g, '/')
 				}
 
+				const typeRoots = resolveTypeRoots(projectRoot, fs)
+				const resolvedCompilerOptions = compilerOptions
+					? {
+							...(typeRoots.length ? { typeRoots } : {}),
+							...compilerOptions
+						}
+					: {
+							lib: ['ESNext'],
+							module: 'ESNext',
+							noEmit: false,
+							declaration: true,
+							emitDeclarationOnly: true,
+							moduleResolution: 'bundler',
+							skipLibCheck: true,
+							skipDefaultLibCheck: true,
+							rootDir,
+							outDir: distDir,
+							...(typeRoots.length ? { typeRoots } : {})
+						}
+
 				fs.writeFileSync(
 					join(tmpRoot, 'tsconfig.json'),
 					`{
 	${extendsRef}
-	"compilerOptions": ${
-		compilerOptions
-			? JSON.stringify(compilerOptions)
-			: `{
-	"lib": ["ESNext"],
-	"module": "ESNext",
-	"noEmit": false,
-	"declaration": true,
-	"emitDeclarationOnly": true,
-	"moduleResolution": "bundler",
-	"skipLibCheck": true,
-	"skipDefaultLibCheck": true,
-	"rootDir": "${rootDir}",
-	"outDir": "${distDir}"
-}`
-	},
+	"compilerOptions": ${JSON.stringify(resolvedCompilerOptions)},
 	"include": ["${src}"]
 }`
 				)
@@ -1050,8 +1394,17 @@ export const fromTypes =
 						'[@elysia/openapi/gen] `fromTypes` declaration generation require child_process.spawnSync which is not available in this environment'
 					)
 
-				spawnSync(`tsc`, {
-					shell: true,
+				const tscBin = resolveTypeScriptBin(projectRoot, fs)
+				if (!tscBin)
+					console.warn(
+						"[@elysia/openapi/gen] Couldn't find the TypeScript compiler. Install it in the project with `bun add -d typescript`."
+					)
+
+				// Run the compiler with this process (node or bun). The `tsc`
+				// shebang calls `node`, which is absent in a Bun-only install,
+				// and `tsc` itself is absent unless node_modules/.bin is on PATH.
+				spawnSync(tscBin ? process.execPath : 'tsc', tscBin ? [tscBin] : [], {
+					shell: !tscBin,
 					cwd: tmpRoot,
 					stdio: silent ? undefined : 'inherit'
 				})
@@ -1128,8 +1481,6 @@ export const fromTypes =
 			if (!debug && fs.existsSync(tmpRoot))
 				fs.rmSync(tmpRoot, { recursive: true, force: true })
 
-			// created on first use, only if needed
-			let typescript: TypeChecker | undefined
 			const typeChecker = () =>
 				(typescript ??= createTypeChecker(
 					src,
@@ -1156,6 +1507,8 @@ export const fromTypes =
 
 			return
 		} finally {
+			typescript?.dispose()
+
 			if (!debug && tmpRoot && fs.existsSync(tmpRoot))
 				fs.rmSync(tmpRoot, { recursive: true, force: true })
 		}

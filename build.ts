@@ -5,7 +5,7 @@ await $`rm -rf dist`
 
 await build({
 	outDir: 'dist',
-	entry: ['src/**/*.ts'],
+	entry: ['src/**/*.ts', '!src/**/*.d.ts'],
 	cjsDefault: false,
 	target: 'node22',
 	format: ['esm', 'cjs'],

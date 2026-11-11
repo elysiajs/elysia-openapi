@@ -72,7 +72,13 @@ export const openapi = <
 	mapJsonSchema,
 	embedSpec
 }: ElysiaOpenAPIConfig<Enabled, Path> = {}) => {
-	if (!enabled) return new Elysia({ name: '@elysiajs/openapi' })
+	// Return a callback, not `new Elysia()`. A concrete instance is a different
+	// `#private` brand from `AnyElysia`, so `.use()` rejects that union member.
+	// `void` keeps `.use()` on its fallback overload, which preserves the parent type.
+	if (!enabled)
+		return (host: AnyElysia): void => {
+			host.use(new Elysia({ name: '@elysiajs/openapi' }))
+		}
 
 	const info = {
 		title: 'Elysia Documentation',
@@ -119,12 +125,15 @@ export const openapi = <
 		})
 	}
 
-	return (host: AnyElysia) => {
+	return (host: AnyElysia): void => {
 		const plugin = new Elysia({
 			name: '@elysia/openapi'
 		})
 
-		if (provider === null) return host.use(plugin)
+		if (provider === null) {
+			host.use(plugin)
+			return
+		}
 
 		const page = () =>
 			new Response(
@@ -207,7 +216,7 @@ export const openapi = <
 				}
 			)
 
-		return host.use(plugin)
+		host.use(plugin)
 	}
 }
 
