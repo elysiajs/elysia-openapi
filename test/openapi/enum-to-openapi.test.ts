@@ -70,8 +70,15 @@ describe('OpenAPI > enumToOpenAPI', () => {
 
 		// The invalid Date entry is replaced; the duplicate date-time is removed
 		expect(result.anyOf).not.toContainEqual({ type: 'Date' })
-		expect(result.anyOf.filter((x: any) => x.type === 'string' && x.format === 'date-time')).toHaveLength(1)
-		expect(result.anyOf).toContainEqual({ type: 'string', format: 'date-time' })
+		expect(
+			result.anyOf.filter(
+				(x: any) => x.type === 'string' && x.format === 'date-time'
+			)
+		).toHaveLength(1)
+		expect(result.anyOf).toContainEqual({
+			type: 'string',
+			format: 'date-time'
+		})
 	})
 
 	it('should preserve {"type":"null"} sibling when replacing Date in a nullable date field', () => {
@@ -82,7 +89,10 @@ describe('OpenAPI > enumToOpenAPI', () => {
 
 		const result = enumToOpenApi(schema as any) as any
 
-		expect(result.anyOf).toContainEqual({ type: 'string', format: 'date-time' })
+		expect(result.anyOf).toContainEqual({
+			type: 'string',
+			format: 'date-time'
+		})
 		expect(result.anyOf).toContainEqual({ type: 'null' })
 		expect(result.anyOf).not.toContainEqual({ type: 'Date' })
 	})
@@ -91,6 +101,7 @@ describe('OpenAPI > enumToOpenAPI', () => {
 		const schema = {
 			type: 'object',
 			properties: {
+				[Kind]: 'Date',
 				name: { type: 'string' },
 				createdAt: {
 					anyOf: [
@@ -105,7 +116,9 @@ describe('OpenAPI > enumToOpenAPI', () => {
 
 		const result = enumToOpenApi(schema as any) as any
 
-		expect(result.properties.createdAt.anyOf).not.toContainEqual({ type: 'Date' })
+		expect(result.properties.createdAt.anyOf).not.toContainEqual({
+			type: 'Date'
+		})
 		expect(result.properties.createdAt.anyOf).toContainEqual({
 			type: 'string',
 			format: 'date-time'

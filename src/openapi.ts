@@ -692,6 +692,26 @@ export const enumToOpenApi = <
 			} as any
 	}
 
+	// TypeBox's t.Date() serialises to {"type":"Date"}.
+	// "Date" is not a valid OpenAPI 3.0 type; replace it with
+	// {"type":"string","format":"date-time"} which is what Elysia actually
+	// serialises Date instances to on the wire.
+	if (
+		('type' in _schema && _schema.type === 'Date') ||
+		(Kind in _schema && _schema[Kind] === 'Date')
+	) {
+		// Preserve OpenAPI annotations (e.g. description, readOnly) carried by the
+		// original Date schema. TypeBox internals live behind symbols and are
+		// dropped: the result is a plain, serialisable OpenAPI schema.
+		const annotations = Object.fromEntries(
+			Object.entries(_schema).filter(
+				([key]) => !['type', 'format'].includes(key)
+			)
+		)
+
+		return { type: 'string', format: 'date-time', ...annotations } as any
+	}
+
 	const schema = _schema as OpenAPIV3.SchemaObject
 
 	if (schema.type === 'object' && schema.properties) {
@@ -711,20 +731,8 @@ export const enumToOpenApi = <
 			items: enumToOpenApi(schema.items)
 		} as T
 
-	// TypeBox's t.Date() serialises to anyOf: [{"type":"Date"}, ...].
-	// "Date" is not a valid OpenAPI 3.0 type; replace it with
-	// {"type":"string","format":"date-time"} which is what Elysia actually
-	// serialises Date instances to on the wire.  Use replace (not filter) so
-	// that nullable dates � t.Nullable(t.Date()) � keep their {"type":"null"}
-	// sibling instead of collapsing to null-only.
 	if (schema.anyOf && Array.isArray(schema.anyOf)) {
-		const mapped = schema.anyOf.map((item) =>
-			item &&
-			typeof item === 'object' &&
-			(item as Record<string, unknown>).type === 'Date'
-				? { type: 'string', format: 'date-time' }
-				: enumToOpenApi(item)
-		)
+		const mapped = schema.anyOf.map((item) => enumToOpenApi(item))
 		// Deduplicate: after the replacement above the anyOf may contain two
 		// identical date-time entries because t.Date() already included one.
 		// Compare by canonical (sorted-key) JSON to catch different key orderings.

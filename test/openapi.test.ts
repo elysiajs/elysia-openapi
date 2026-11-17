@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'bun:test'
-import { Kind } from '@sinclair/typebox'
+import { Kind, Type } from '@sinclair/typebox'
 
 import { enumToOpenApi } from '../src/openapi'
+import { t } from 'elysia'
 
 describe('convertEnumToOpenApi', () => {
 	it('should convert enum schema to OpenAPI enum format', () => {
@@ -15,6 +16,131 @@ describe('convertEnumToOpenApi', () => {
 		expect(result).toEqual({
 			type: 'string',
 			enum: ['male', 'female']
+		})
+	})
+
+	it('should convert Date properties to date-time format', () => {
+		const expectedSchema = {
+			type: 'object',
+			properties: {
+				myDate: { type: 'Date' }
+			}
+		}
+
+		const result = enumToOpenApi(expectedSchema as any)
+
+		expect(result).toEqual({
+			type: 'object',
+			properties: {
+				myDate: { type: 'string', format: 'date-time' }
+			}
+		})
+	})
+
+	it('should convert TDate TypeBox schema to date-time format', () => {
+		const expectedSchema = Type.Object({
+			myDate: Type.Date(),
+			anotherDate: Type.Optional(Type.Date())
+		})
+
+		const result = enumToOpenApi(expectedSchema as any)
+
+		expect(result).toEqual({
+			[Kind]: 'Object',
+			type: 'object',
+			properties: {
+				myDate: { type: 'string', format: 'date-time' },
+				anotherDate: { type: 'string', format: 'date-time' }
+			},
+			required: ['myDate']
+		})
+	})
+
+	it('should retain extra information on TDate schemas', () => {
+		const expectedSchema = Type.Object({
+			myDate: Type.Date({ description: 'My date field' }),
+			anotherDate: t.Date({ description: 'Another date field' })
+		})
+
+		const result = enumToOpenApi(expectedSchema as any)
+
+		expect(result).toEqual({
+			[Kind]: 'Object',
+			type: 'object',
+			properties: {
+				myDate: {
+					type: 'string',
+					format: 'date-time',
+					description: 'My date field'
+				},
+				anotherDate: expect.objectContaining({
+					anyOf: expect.arrayContaining([
+						expect.objectContaining({
+							type: 'string',
+							format: 'date-time'
+						})
+					]),
+					description: 'Another date field'
+				})
+			},
+			// Both fields are non-optional, so both are required
+			required: ['myDate', 'anotherDate']
+		})
+	})
+
+	// Elysia's t.Date is an extension of the TypeBox Date type and behaves differently
+	it('should convert Elysia t.Date TypeBox schema to date-time format', () => {
+		const expectedSchema = t.Object({
+			myDate: t.Date(),
+			anotherDate: t.Optional(t.Date())
+		})
+
+		const result = enumToOpenApi(expectedSchema as any)
+
+		expect(result).toEqual({
+			[Kind]: 'Object',
+			type: 'object',
+			properties: {
+				myDate: expect.objectContaining({
+					anyOf: [
+						{
+							format: 'date-time',
+							type: 'string'
+						},
+						{
+							[Kind]: 'String',
+							default: undefined,
+							format: 'date',
+							type: 'string'
+						},
+						{
+							[Kind]: 'Number',
+							default: undefined,
+							type: 'number'
+						}
+					]
+				}),
+				anotherDate: expect.objectContaining({
+					anyOf: [
+						{
+							format: 'date-time',
+							type: 'string'
+						},
+						{
+							[Kind]: 'String',
+							default: undefined,
+							format: 'date',
+							type: 'string'
+						},
+						{
+							[Kind]: 'Number',
+							default: undefined,
+							type: 'number'
+						}
+					]
+				})
+			},
+			required: ['myDate']
 		})
 	})
 
