@@ -699,8 +699,18 @@ export const enumToOpenApi = <
 	if (
 		('type' in _schema && _schema.type === 'Date') ||
 		(Kind in _schema && _schema[Kind] === 'Date')
-	)
-		return { type: 'string', format: 'date-time' } as any
+	) {
+		// Preserve OpenAPI annotations (e.g. description, readOnly) carried by the
+		// original Date schema. TypeBox internals live behind symbols and are
+		// dropped: the result is a plain, serialisable OpenAPI schema.
+		const annotations = Object.fromEntries(
+			Object.entries(_schema).filter(
+				([key]) => !['type', 'format'].includes(key)
+			)
+		)
+
+		return { type: 'string', format: 'date-time', ...annotations } as any
+	}
 
 	const schema = _schema as OpenAPIV3.SchemaObject
 
