@@ -39,7 +39,8 @@ describe('convertEnumToOpenApi', () => {
 
 	it('should convert TDate TypeBox schema to date-time format', () => {
 		const expectedSchema = Type.Object({
-			myDate: Type.Optional(Type.Date())
+			myDate: Type.Date(),
+			anotherDate: Type.Optional(Type.Date())
 		})
 
 		const result = enumToOpenApi(expectedSchema as any)
@@ -48,15 +49,18 @@ describe('convertEnumToOpenApi', () => {
 			[Kind]: 'Object',
 			type: 'object',
 			properties: {
-				myDate: { type: 'string', format: 'date-time' }
-			}
+				myDate: { type: 'string', format: 'date-time' },
+				anotherDate: { type: 'string', format: 'date-time' }
+			},
+			required: ['myDate']
 		})
 	})
 
 	// Elysia's t.Date is an extension of the TypeBox Date type and behaves differently
 	it('should convert Elysia t.Date TypeBox schema to date-time format', () => {
 		const expectedSchema = t.Object({
-			myDate: t.Optional(t.Date())
+			myDate: t.Date(),
+			anotherDate: t.Optional(t.Date())
 		})
 
 		const result = enumToOpenApi(expectedSchema as any)
@@ -83,8 +87,28 @@ describe('convertEnumToOpenApi', () => {
 							type: 'number'
 						}
 					]
+				}),
+				anotherDate: expect.objectContaining({
+					anyOf: [
+						{
+							format: 'date-time',
+							type: 'string'
+						},
+						{
+							[Kind]: 'String',
+							default: undefined,
+							format: 'date',
+							type: 'string'
+						},
+						{
+							[Kind]: 'Number',
+							default: undefined,
+							type: 'number'
+						}
+					]
 				})
-			}
+			},
+			required: ['myDate']
 		})
 	})
 
