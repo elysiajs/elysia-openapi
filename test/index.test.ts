@@ -49,6 +49,33 @@ describe('Swagger', () => {
 		await SwaggerParser.validate(document).catch((error) => fail(error))
 	})
 
+	it('documents literal union responses with their value type', async () => {
+		const app = new Elysia()
+			.use(openapi())
+			.get('/number', () => 1 as 1 | 2, {
+				response: t.Union([t.Literal(1), t.Literal(2)])
+			})
+			.get('/mixed', () => 'auto' as 'auto' | 0, {
+				response: t.Union([t.Literal('auto'), t.Literal(0)])
+			})
+
+		await app.modules
+
+		const document = await app
+			.handle(req('/openapi/json'))
+			.then((response) => response.json())
+		const content = (path: string) =>
+			document.paths[path].get.responses['200'].content
+
+		expect(content('/number')).toEqual({
+			'text/plain': { schema: { type: 'number', enum: [1, 2] } }
+		})
+		expect(content('/mixed')).toEqual({
+			'text/plain': { schema: { enum: ['auto', 0] } }
+		})
+		await SwaggerParser.validate(document).catch((error) => fail(error))
+	})
+
 	it('use custom Swagger version', async () => {
 		const app = new Elysia().use(
 			openapi({

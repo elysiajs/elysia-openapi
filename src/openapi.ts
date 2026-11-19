@@ -916,6 +916,12 @@ const stripHeaders = (
 const VOID_TYPES = new Set(['void', 'null', 'undefined'])
 const PLAIN_TYPES = new Set(['string', 'number', 'integer', 'boolean'])
 
+// An enum of mixed primitives (e.g. 'auto' | 0) has no `type`, but is still sent as plain text
+const isPrimitiveEnum = (schema: OpenAPIV3.SchemaObject) =>
+	Array.isArray(schema.enum) &&
+	schema.enum.length > 0 &&
+	schema.enum.every((value) => PLAIN_TYPES.has(typeof value))
+
 const toResponseContent = (
 	schema: OpenAPIV3.SchemaObject,
 	type: string | undefined,
@@ -923,7 +929,7 @@ const toResponseContent = (
 ) =>
 	VOID_TYPES.has(type!)
 		? ({ type, description } as any)
-		: PLAIN_TYPES.has(type!)
+		: PLAIN_TYPES.has(type!) || (!type && isPrimitiveEnum(schema))
 			? { 'text/plain': { schema } }
 			: { 'application/json': { schema } }
 
