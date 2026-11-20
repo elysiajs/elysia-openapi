@@ -658,17 +658,18 @@ export const unwrapSchema = (
 }
 
 /**
- * The JSON Schema type shared by every enum value, or undefined when the
- * values have mixed types (an enum without `type` still lists them exactly)
+ * The JSON Schema type for enum values: `number` or `boolean` when every value
+ * has that type, otherwise `string` (unchanged behavior for strings and mixed values)
  */
-const literalType = (
-	values: unknown[]
-): 'string' | 'number' | 'boolean' | undefined => {
+const literalType = (values: unknown[]): 'string' | 'number' | 'boolean' => {
 	const first = typeof values[0]
-	if (first !== 'string' && first !== 'number' && first !== 'boolean')
-		return
+	if (
+		(first === 'number' || first === 'boolean') &&
+		values.every((value) => typeof value === first)
+	)
+		return first
 
-	return values.every((value) => typeof value === first) ? first : undefined
+	return 'string'
 }
 
 /**
@@ -701,9 +702,8 @@ export const enumToOpenApi = <
 			)
 		) {
 			const values = schema.anyOf.map((item) => item.const)
-			const type = literalType(values)
 
-			return (type ? { type, enum: values } : { enum: values }) as any
+			return { type: literalType(values), enum: values } as any
 		}
 	}
 
@@ -916,12 +916,6 @@ const stripHeaders = (
 const VOID_TYPES = new Set(['void', 'null', 'undefined'])
 const PLAIN_TYPES = new Set(['string', 'number', 'integer', 'boolean'])
 
-// An enum of mixed primitives (e.g. 'auto' | 0) has no `type`, but is still sent as plain text
-const isPrimitiveEnum = (schema: OpenAPIV3.SchemaObject) =>
-	Array.isArray(schema.enum) &&
-	schema.enum.length > 0 &&
-	schema.enum.every((value) => PLAIN_TYPES.has(typeof value))
-
 const toResponseContent = (
 	schema: OpenAPIV3.SchemaObject,
 	type: string | undefined,
@@ -929,7 +923,7 @@ const toResponseContent = (
 ) =>
 	VOID_TYPES.has(type!)
 		? ({ type, description } as any)
-		: PLAIN_TYPES.has(type!) || (!type && isPrimitiveEnum(schema))
+		: PLAIN_TYPES.has(type!)
 			? { 'text/plain': { schema } }
 			: { 'application/json': { schema } }
 

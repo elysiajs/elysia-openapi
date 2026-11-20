@@ -68,13 +68,14 @@ describe('convertEnumToOpenApi', () => {
 		})
 	})
 
-	it('should omit type for mixed literal unions', () => {
+	it('should keep string type for mixed literal unions', () => {
 		const result = enumToOpenApi({
 			[Kind]: 'Union',
 			anyOf: [{ const: 'auto' }, { const: 0 }]
 		} as any)
 
 		expect(result).toEqual({
+			type: 'string',
 			enum: ['auto', 0]
 		})
 	})

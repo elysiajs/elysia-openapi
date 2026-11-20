@@ -70,8 +70,9 @@ describe('Swagger', () => {
 		expect(content('/number')).toEqual({
 			'text/plain': { schema: { type: 'number', enum: [1, 2] } }
 		})
+		// Mixed unions keep their previous output
 		expect(content('/mixed')).toEqual({
-			'text/plain': { schema: { enum: ['auto', 0] } }
+			'text/plain': { schema: { type: 'string', enum: ['auto', 0] } }
 		})
 		await SwaggerParser.validate(document).catch((error) => fail(error))
 	})
