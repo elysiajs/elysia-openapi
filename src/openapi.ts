@@ -658,6 +658,21 @@ export const unwrapSchema = (
 }
 
 /**
+ * The JSON Schema type for enum values: `number` or `boolean` when every value
+ * has that type, otherwise `string` (unchanged behavior for strings and mixed values)
+ */
+const literalType = (values: unknown[]): 'string' | 'number' | 'boolean' => {
+	const first = typeof values[0]
+	if (
+		(first === 'number' || first === 'boolean') &&
+		values.every((value) => typeof value === first)
+	)
+		return first
+
+	return 'string'
+}
+
+/**
  * Convert TypeBox enum-like Union schemas to OpenAPI enum schemas
  *
  * Otherwise, return the schema as is
@@ -685,11 +700,11 @@ export const enumToOpenApi = <
 				(item) =>
 					item && typeof item === 'object' && item.const !== undefined
 			)
-		)
-			return {
-				type: 'string',
-				enum: schema.anyOf.map((item) => item.const)
-			} as any
+		) {
+			const values = schema.anyOf.map((item) => item.const)
+
+			return { type: literalType(values), enum: values } as any
+		}
 	}
 
 	const schema = _schema as OpenAPIV3.SchemaObject

@@ -44,6 +44,42 @@ describe('convertEnumToOpenApi', () => {
 		})
 	})
 
+	it('should use number type for numeric literal unions', () => {
+		const result = enumToOpenApi({
+			[Kind]: 'Union',
+			anyOf: [{ const: 1 }, { const: 2 }]
+		} as any)
+
+		expect(result).toEqual({
+			type: 'number',
+			enum: [1, 2]
+		})
+	})
+
+	it('should use boolean type for boolean literal unions', () => {
+		const result = enumToOpenApi({
+			[Kind]: 'Union',
+			anyOf: [{ const: true }, { const: false }]
+		} as any)
+
+		expect(result).toEqual({
+			type: 'boolean',
+			enum: [true, false]
+		})
+	})
+
+	it('should keep string type for mixed literal unions', () => {
+		const result = enumToOpenApi({
+			[Kind]: 'Union',
+			anyOf: [{ const: 'auto' }, { const: 0 }]
+		} as any)
+
+		expect(result).toEqual({
+			type: 'string',
+			enum: ['auto', 0]
+		})
+	})
+
 	it('should return original schema if not enum', () => {
 		const expectedSchema = {
 			type: 'string',
