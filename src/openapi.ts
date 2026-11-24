@@ -1189,84 +1189,75 @@ export function toOpenAPISchema(
 					openapiVersion
 				)
 
+				const content: Record<
+					string,
+					{ schema: OpenAPIV3.SchemaObject }
+				> = {}
+
 				// @ts-ignore
-				if (hooks.parse) {
-					const content: Record<
-						string,
-						{ schema: OpenAPIV3.SchemaObject }
-					> = {}
+				const parsers = (hooks.parse ?? []) as HookContainer[]
 
-					// @ts-ignore
-					const parsers = hooks.parse as HookContainer[]
+				for (const parser of parsers) {
+					if (typeof parser.fn === 'function') continue
 
-					for (const parser of parsers) {
-						if (typeof parser.fn === 'function') continue
+					switch (parser.fn) {
+						case 'text':
+						case 'text/plain':
+							content['text/plain'] = { schema: body }
+							continue
 
-						switch (parser.fn) {
-							case 'text':
-							case 'text/plain':
-								content['text/plain'] = { schema: body }
-								continue
+						case 'urlencoded':
+						case 'application/x-www-form-urlencoded':
+							content['application/x-www-form-urlencoded'] = {
+								schema: body
+							}
+							continue
 
-							case 'urlencoded':
-							case 'application/x-www-form-urlencoded':
-								content['application/x-www-form-urlencoded'] = {
-									schema: body
-								}
-								continue
+						case 'json':
+						case 'application/json':
+							content['application/json'] = { schema: body }
+							continue
 
-							case 'json':
-							case 'application/json':
-								content['application/json'] = { schema: body }
-								continue
+						case 'formdata':
+						case 'multipart/form-data':
+							content['multipart/form-data'] = {
+								schema: body
+							}
+							continue
 
-							case 'formdata':
-							case 'multipart/form-data':
-								content['multipart/form-data'] = {
-									schema: body
-								}
-								continue
+						case 'arrayBuffer':
+						case 'application/octet-stream':
+							content['application/octet-stream'] = {
+								schema: body
+							}
+							continue
+					}
+				}
 
-							case 'arrayBuffer':
-							case 'application/octet-stream':
-								content['application/octet-stream'] = {
-									schema: body
-								}
-								continue
+				// A custom parser function, an unknown parse mode or an empty
+				// parser list names no content type: document the default ones
+				// instead of an empty content map that drops the body schema
+				if (Object.keys(content).length === 0) {
+					if (
+						type === 'string' ||
+						type === 'number' ||
+						type === 'integer' ||
+						type === 'boolean'
+					)
+						content['text/plain'] = { schema: body }
+					else {
+						content['application/json'] = { schema: body }
+						content['application/x-www-form-urlencoded'] = {
+							schema: body
 						}
+						content['multipart/form-data'] = { schema: body }
 					}
+				}
 
-					operation.requestBody = {
-						description,
-						content,
-						required: true
-					}
-				} else {
-					operation.requestBody = {
-						description,
-						required: true,
-						content:
-							type === 'string' ||
-							type === 'number' ||
-							type === 'integer' ||
-							type === 'boolean'
-								? {
-										'text/plain': {
-											schema: body
-										}
-									}
-								: {
-										'application/json': {
-											schema: body
-										},
-										'application/x-www-form-urlencoded': {
-											schema: body
-										},
-										'multipart/form-data': {
-											schema: body
-										}
-									}
-					}
+				operation.requestBody = {
+					description,
+					content,
+					required: true
 				}
 			}
 		}

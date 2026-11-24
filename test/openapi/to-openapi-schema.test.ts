@@ -262,6 +262,67 @@ describe('OpenAPI > toOpenAPISchema', () => {
 		})
 	})
 
+	it('document body of a route with a custom parser function', () => {
+		const app = new Elysia().post('/custom', ({ body }) => body, {
+			parse: ({ request }) => request.json(),
+			body: t.Object({ name: t.String() })
+		})
+
+		const schema = {
+			type: 'object',
+			properties: { name: { type: 'string' } },
+			required: ['name']
+		}
+
+		expect(
+			JSON.parse(JSON.stringify(toOpenAPISchema(app))).paths['/custom']
+				.post.requestBody.content
+		).toEqual({
+			'application/json': { schema },
+			'application/x-www-form-urlencoded': { schema },
+			'multipart/form-data': { schema }
+		})
+	})
+
+	it('document body of a route whose macro adds a parse hook', () => {
+		const app = new Elysia()
+			.macro({
+				audit: (enabled: boolean) => ({
+					parse() {}
+				})
+			})
+			.post('/audited', ({ body }) => body, {
+				audit: true,
+				body: t.Object({ name: t.String() })
+			})
+
+		expect(
+			Object.keys(
+				JSON.parse(JSON.stringify(toOpenAPISchema(app))).paths[
+					'/audited'
+				].post.requestBody.content
+			)
+		).toEqual([
+			'application/json',
+			'application/x-www-form-urlencoded',
+			'multipart/form-data'
+		])
+	})
+
+	it('keep only the named content type next to a parser function', () => {
+		const app = new Elysia().post('/mixed', ({ body }) => body, {
+			parse: [() => undefined, 'json'],
+			body: t.Object({ name: t.String() })
+		})
+
+		expect(
+			Object.keys(
+				JSON.parse(JSON.stringify(toOpenAPISchema(app))).paths['/mixed']
+					.post.requestBody.content
+			)
+		).toEqual(['application/json'])
+	})
+
 	it('handle response', () => {
 		const app = new Elysia().get(
 			'/user',
