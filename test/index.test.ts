@@ -354,6 +354,15 @@ describe('Swagger', () => {
 			}
 	})
 
+	it('keep the page at one address with strictPath', async () => {
+		const app = new Elysia({ strictPath: true }).use(openapi())
+
+		await app.modules
+
+		expect((await app.handle(req('/openapi'))).status).toBe(200)
+		expect((await app.handle(req('/openapi/'))).status).toBe(404)
+	})
+
 	it('Swagger UI options', async () => {
 		const app = new Elysia().use(
 			openapi({

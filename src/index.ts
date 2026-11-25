@@ -177,7 +177,21 @@ export const openapi = <
 				}
 			)
 
-		const loosePath = getLoosePath(path)
+		if (host['~config']?.strictPath !== true) {
+			const loosePath = getLoosePath(path)
+
+			plugin.get(
+				loosePath,
+				{
+					detail: {
+						hide: true
+					}
+				},
+				embedSpec || isCloudflareWorker()
+					? () => page(loosePath)
+					: page(loosePath)
+			)
+		}
 
 		plugin
 			.get(
@@ -190,17 +204,6 @@ export const openapi = <
 				embedSpec || isCloudflareWorker()
 					? () => page(path)
 					: page(path)
-			)
-			.get(
-				loosePath,
-				{
-					detail: {
-						hide: true
-					}
-				},
-				embedSpec || isCloudflareWorker()
-					? () => page(loosePath)
-					: page(loosePath)
 			)
 			.get(
 				specPath,
