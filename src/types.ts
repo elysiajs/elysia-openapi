@@ -125,7 +125,7 @@ export interface ElysiaOpenAPIConfig<
 	 * Document WebSocket routes in an AsyncAPI 3.0.0 document
 	 * at `${path}/asyncapi/json`, and remove them from the OpenAPI document
 	 *
-	 * Scalar shows both documents, Swagger UI shows the OpenAPI document only
+	 * Scalar shows both documents unless `embedSpec` is set, Swagger UI shows the OpenAPI document only
 	 *
 	 * @default false
 	 * @see https://www.asyncapi.com/docs/reference/specification/v3.0.0

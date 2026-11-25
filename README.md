@@ -79,9 +79,9 @@ new Elysia()
 	.listen(3000)
 ```
 
-`body` is the message from the client, `response` is the message from the server. `params`, `query`, `headers` and `detail` work as for an HTTP route
+`body` is the message from the client, `response` is the message from the server. `params`, `query`, `headers` and `detail` work as for an HTTP route, `cookie` is not documented
 
-Scalar shows both documents, Swagger UI shows the OpenAPI document only
+Scalar shows both documents unless `embedSpec` is set, Swagger UI shows the OpenAPI document only
 
 ## enabled
 

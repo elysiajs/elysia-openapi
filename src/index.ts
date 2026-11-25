@@ -154,11 +154,22 @@ export const openapi = <
 			)
 
 			if (asyncapi) {
-				cachedAsyncAPI = toAsyncAPISchema(schema, {
-					...documentation,
-					info,
-					tags
-				})
+				cachedAsyncAPI = toAsyncAPISchema(
+					// AsyncAPI reads JSON Schema, which has no `nullable`
+					effectiveOpenAPIVersion.startsWith('3.0.')
+						? toOpenAPISchema(
+								host,
+								exclude,
+								references,
+								mapJsonSchema
+							)
+						: schema,
+					{
+						...documentation,
+						info,
+						tags
+					}
+				)
 
 				for (const [path, item] of Object.entries(schema.paths)) {
 					delete (item as { ws?: unknown }).ws

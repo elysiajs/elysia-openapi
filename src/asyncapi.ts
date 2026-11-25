@@ -54,9 +54,6 @@ const toPayload = (body?: object) =>
 		(body as OpenAPIV3.ResponseObject | undefined)?.content ?? {}
 	)[0]?.schema
 
-/**
- * Converts the WebSocket routes of `toOpenAPISchema` to an AsyncAPI 3.0.0 document
- */
 export const toAsyncAPISchema = (
 	{ paths, components: { schemas } }: ReturnType<typeof toOpenAPISchema>,
 	{
@@ -157,14 +154,15 @@ export const toAsyncAPISchema = (
 		}
 	}
 
+	const allSchemas = { ...schemas, ...components?.schemas }
 	const usedSchemas: Record<string, unknown> = Object.create(null)
 	const collectSchemas = (value: unknown) => {
 		for (const [, name] of JSON.stringify(value).matchAll(
 			/"#\/components\/schemas\/([^"]+)"/g
 		))
-			if (name in schemas && !(name in usedSchemas)) {
-				usedSchemas[name] = schemas[name]
-				collectSchemas(schemas[name])
+			if (name in allSchemas && !(name in usedSchemas)) {
+				usedSchemas[name] = allSchemas[name]
+				collectSchemas(allSchemas[name])
 			}
 	}
 	collectSchemas(channels)
@@ -174,7 +172,11 @@ export const toAsyncAPISchema = (
 		info: {
 			...info,
 			license: license && { name: license.name, url: license.url },
-			tags
+			tags: tags?.filter(({ name }) =>
+				Object.values(paths).some((item: any) =>
+					item.ws?.tags?.includes(name)
+				)
+			)
 		},
 		servers: Object.fromEntries(
 			servers.flatMap((server, index) => {
