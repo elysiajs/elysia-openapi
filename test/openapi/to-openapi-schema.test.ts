@@ -262,6 +262,90 @@ describe('OpenAPI > toOpenAPISchema', () => {
 		})
 	})
 
+	describe('body of a route with a function parser', () => {
+		const body = t.Object({
+			name: t.String()
+		})
+
+		const schema = {
+			type: 'object',
+			properties: {
+				name: {
+					type: 'string'
+				}
+			},
+			required: ['name']
+		}
+
+		const defaultContent = {
+			'application/json': { schema },
+			'application/x-www-form-urlencoded': { schema },
+			'multipart/form-data': { schema }
+		}
+
+		const requestBodyOf = (app: AnyElysia) =>
+			JSON.parse(JSON.stringify(toOpenAPISchema(app))).paths['/user'].post
+				.requestBody
+
+		it('use default content types for a function parser on the instance', () => {
+			const app = new Elysia()
+				.onParse(() => {})
+				.post('/user', ({ body }) => body, { body })
+
+			expect(requestBodyOf(app)).toEqual({
+				content: defaultContent,
+				required: true
+			})
+		})
+
+		it('use default content types for a function parser on the route', () => {
+			const app = new Elysia().post('/user', ({ body }) => body, {
+				parse: () => {},
+				body
+			})
+
+			expect(requestBodyOf(app)).toEqual({
+				content: defaultContent,
+				required: true
+			})
+		})
+
+		it('use text/plain for a primitive body with a function parser', () => {
+			const app = new Elysia()
+				.onParse(() => {})
+				.post('/user', ({ body }) => body, {
+					body: t.String()
+				})
+
+			expect(requestBodyOf(app)).toEqual({
+				content: {
+					'text/plain': {
+						schema: {
+							type: 'string'
+						}
+					}
+				},
+				required: true
+			})
+		})
+
+		it('keep only the named content type when a function parser is combined with one', () => {
+			const app = new Elysia()
+				.onParse(() => {})
+				.post('/user', ({ body }) => body, {
+					parse: 'json',
+					body
+				})
+
+			expect(requestBodyOf(app)).toEqual({
+				content: {
+					'application/json': { schema }
+				},
+				required: true
+			})
+		})
+	})
+
 	it('handle response', () => {
 		const app = new Elysia().get(
 			'/user',

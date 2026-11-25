@@ -1189,8 +1189,23 @@ export function toOpenAPISchema(
 					openapiVersion
 				)
 
+				// `hooks.parse` lists every parser of the route. Each `fn` is
+				// either a name, which tells the content type the route
+				// accepts, or a function, which tells nothing about it:
+				//
+				//   parse: 'json'
+				//     -> [{ fn: 'json' }]
+				//   .onParse(fn)
+				//     -> [{ fn: [Function] }]
+				//   .onParse(fn) and parse: 'json'
+				//     -> [{ fn: [Function] }, { fn: 'json' }]
+				//
+				// Content types can only be read from the names. When the
+				// list has only functions there is none to read and the route
+				// would be documented without its body, so it falls through
+				// to the default content types.
 				// @ts-ignore
-				if (hooks.parse) {
+				if (hooks.parse?.some(({ fn }) => typeof fn !== 'function')) {
 					const content: Record<
 						string,
 						{ schema: OpenAPIV3.SchemaObject }
