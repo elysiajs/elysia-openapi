@@ -318,6 +318,34 @@ describe('Swagger', () => {
 		expect(resJson.status).toBe(200)
 	})
 
+	it('link the page to the specification at any path, with and without a trailing slash', async () => {
+		for (const provider of ['scalar', 'swagger-ui'] as const)
+			for (const path of ['/openapi', '/v2/openapi', '/docs/', '/']) {
+				const app = new Elysia().use(openapi({ provider, path }))
+
+				await app.modules
+
+				const base = path.replace(/\/$/, '')
+				const specPath = `${base}/json`
+
+				for (const page of [base, `${base}/`]) {
+					const html = await app
+						.handle(req(page))
+						.then((x) => x.text())
+					const url = html
+						.replaceAll('&quot;', '"')
+						.match(/"url":"([^"]+)"/)![1]
+
+					expect(new URL(url, `http://localhost${page}`).pathname).toBe(
+						specPath
+					)
+				}
+
+				const res = await app.handle(req(specPath))
+				expect(res.status).toBe(200)
+			}
+	})
+
 	it('Swagger UI options', async () => {
 		const app = new Elysia().use(
 			openapi({

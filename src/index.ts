@@ -4,7 +4,7 @@ import type { AnyElysia } from 'elysia/base'
 import { SwaggerUIRender } from './swagger'
 import { ScalarRender } from './scalar'
 
-import { toOpenAPISchema } from './openapi'
+import { getLoosePath, toOpenAPISchema } from './openapi'
 
 import type { ApiReferenceConfiguration } from '@scalar/types'
 import type { ElysiaOpenAPIConfig, OpenAPIVersion } from './types'
@@ -25,6 +25,16 @@ const normalizeOpenAPIVersion = (version: string): OpenAPIVersion => {
 	)
 
 	return DEFAULT_OPENAPI_VERSION
+}
+
+const relativeTo = (page: string, target: string) => {
+	const from = page.split('/').slice(1, -1)
+	const to = target.split('/').slice(1)
+
+	let shared = 0
+	while (shared < from.length && from[shared] === to[shared]) shared++
+
+	return '../'.repeat(from.length - shared) + to.slice(shared).join('/')
 }
 
 function isCloudflareWorker() {
@@ -62,7 +72,7 @@ export const openapi = <
 	enabled = true as Enabled,
 	path = '/openapi' as Path,
 	provider = 'scalar',
-	specPath = `${path}/json`,
+	specPath = `${path.replace(/\/$/, '')}/json`,
 	openapiVersion = DEFAULT_OPENAPI_VERSION,
 	documentation = {},
 	exclude,
@@ -81,7 +91,6 @@ export const openapi = <
 		...documentation.info
 	}
 
-	const relativePath = specPath.startsWith('/') ? specPath.slice(1) : specPath
 	const effectiveOpenAPIVersion = normalizeOpenAPIVersion(openapiVersion)
 
 	let totalRoutes = 0
@@ -126,11 +135,11 @@ export const openapi = <
 
 		if (provider === null) return host.use(plugin)
 
-		const page = () =>
+		const page = (address: string) =>
 			new Response(
 				provider === 'swagger-ui'
 					? SwaggerUIRender(info, {
-							url: relativePath,
+							url: relativeTo(address, specPath),
 							dom_id: '#swagger-ui',
 							version: 'latest',
 							autoDarkMode: true,
@@ -139,7 +148,7 @@ export const openapi = <
 					: ScalarRender(
 							info,
 							{
-								url: relativePath,
+								url: relativeTo(address, specPath),
 								version: 'latest',
 								cdn: `https://cdn.jsdelivr.net/npm/@scalar/api-reference@${scalar?.version ?? 'latest'}/dist/browser/standalone.min.js`,
 								...(scalar as ApiReferenceConfiguration),
@@ -168,6 +177,8 @@ export const openapi = <
 				}
 			)
 
+		const loosePath = getLoosePath(path)
+
 		plugin
 			.get(
 				path,
@@ -176,7 +187,20 @@ export const openapi = <
 						hide: true
 					}
 				},
-				embedSpec || isCloudflareWorker() ? page : page()
+				embedSpec || isCloudflareWorker()
+					? () => page(path)
+					: page(path)
+			)
+			.get(
+				loosePath,
+				{
+					detail: {
+						hide: true
+					}
+				},
+				embedSpec || isCloudflareWorker()
+					? () => page(loosePath)
+					: page(loosePath)
 			)
 			.get(
 				specPath,
