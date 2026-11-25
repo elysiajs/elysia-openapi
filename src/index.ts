@@ -5,6 +5,7 @@ import { SwaggerUIRender } from './swagger'
 import { ScalarRender } from './scalar'
 
 import { getLoosePath, toOpenAPISchema } from './openapi'
+import { toAsyncAPISchema } from './asyncapi'
 
 import type { ApiReferenceConfiguration } from '@scalar/types'
 import type { ElysiaOpenAPIConfig, OpenAPIVersion } from './types'
@@ -80,7 +81,8 @@ export const openapi = <
 	scalar,
 	references,
 	mapJsonSchema,
-	embedSpec
+	embedSpec,
+	asyncapi
 }: ElysiaOpenAPIConfig<Enabled, Path> = {}) => {
 	if (!enabled) return new Elysia({ name: '@elysiajs/openapi' })
 
@@ -91,10 +93,16 @@ export const openapi = <
 		...documentation.info
 	}
 
+	const tags = !exclude?.tags
+		? documentation.tags
+		: documentation.tags?.filter((tag) => !exclude.tags?.includes(tag.name))
+
 	const effectiveOpenAPIVersion = normalizeOpenAPIVersion(openapiVersion)
+	const asyncapiPath = `${path.replace(/\/$/, '')}/asyncapi/json`
 
 	let totalRoutes = 0
 	let cachedSchema: OpenAPIDocument | undefined
+	let cachedAsyncAPI: ReturnType<typeof toAsyncAPISchema> | undefined
 
 	const toFullSchema = ({
 		paths,
@@ -103,11 +111,7 @@ export const openapi = <
 		return (cachedSchema = {
 			...documentation,
 			openapi: effectiveOpenAPIVersion,
-			tags: !exclude?.tags
-				? documentation.tags
-				: documentation.tags?.filter(
-						(tag) => !exclude.tags?.includes(tag.name)
-					),
+			tags,
 			info: {
 				title: 'Elysia Documentation',
 				description: 'Development documentation',
@@ -135,6 +139,36 @@ export const openapi = <
 
 		if (provider === null) return host.use(plugin)
 
+		const generate = () => {
+			if (totalRoutes === host.routes.length && cachedSchema)
+				return cachedSchema
+
+			totalRoutes = host.routes.length
+
+			const schema = toOpenAPISchema(
+				host,
+				exclude,
+				references,
+				mapJsonSchema,
+				effectiveOpenAPIVersion
+			)
+
+			if (asyncapi) {
+				cachedAsyncAPI = toAsyncAPISchema(schema, {
+					...documentation,
+					info,
+					tags
+				})
+
+				for (const [path, item] of Object.entries(schema.paths)) {
+					delete (item as { ws?: unknown }).ws
+					if (!Object.keys(item!).length) delete schema.paths[path]
+				}
+			}
+
+			return toFullSchema(schema)
+		}
+
 		const page = (address: string) =>
 			new Response(
 				provider === 'swagger-ui'
@@ -148,27 +182,32 @@ export const openapi = <
 					: ScalarRender(
 							info,
 							{
-								url: relativeTo(address, specPath),
+								...(asyncapi && !embedSpec && !scalar?.url
+									? {
+											sources: [
+												{
+													title: 'HTTP',
+													url: relativeTo(
+														address,
+														specPath
+													)
+												},
+												{
+													title: 'WebSocket',
+													url: relativeTo(
+														address,
+														asyncapiPath
+													)
+												}
+											]
+										}
+									: { url: relativeTo(address, specPath) }),
 								version: 'latest',
 								cdn: `https://cdn.jsdelivr.net/npm/@scalar/api-reference@${scalar?.version ?? 'latest'}/dist/browser/standalone.min.js`,
 								...(scalar as ApiReferenceConfiguration),
 								_integration: 'elysiajs'
 							},
-							embedSpec
-								? JSON.stringify(
-										totalRoutes === host.routes.length
-											? cachedSchema
-											: toFullSchema(
-													toOpenAPISchema(
-														host,
-														exclude,
-														references,
-														mapJsonSchema,
-														effectiveOpenAPIVersion
-													)
-												)
-									)
-								: undefined
+							embedSpec ? JSON.stringify(generate()) : undefined
 						),
 				{
 					headers: {
@@ -217,20 +256,22 @@ export const openapi = <
 					}
 				},
 				function openAPISchema(): OpenAPIDocument {
-					if (totalRoutes === host.routes.length && cachedSchema)
-						return cachedSchema
+					return generate()
+				}
+			)
 
-					totalRoutes = host.routes.length
+		if (asyncapi)
+			plugin.get(
+				asyncapiPath,
+				{
+					detail: {
+						hide: true
+					}
+				},
+				function asyncAPISchema() {
+					generate()
 
-					return toFullSchema(
-						toOpenAPISchema(
-							host,
-							exclude,
-							references,
-							mapJsonSchema,
-							effectiveOpenAPIVersion
-						)
-					)
+					return cachedAsyncAPI
 				}
 			)
 
