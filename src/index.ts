@@ -28,8 +28,8 @@ const normalizeOpenAPIVersion = (version: string): OpenAPIVersion => {
 }
 
 const relativeTo = (page: string, target: string) => {
-	const from = page.split('/').slice(1, -1)
-	const to = target.split('/').slice(1)
+	const from = page.replace(/^\//, '').split('/').slice(0, -1)
+	const to = target.replace(/^\//, '').split('/')
 
 	let shared = 0
 	while (shared < from.length && from[shared] === to[shared]) shared++
