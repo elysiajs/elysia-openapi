@@ -314,8 +314,7 @@ describe('AsyncAPI', () => {
 				info: {
 					title: 'Chat',
 					version: '1.0.0',
-					summary: 'OpenAPI only',
-					license: { name: 'MIT', identifier: 'MIT' }
+					summary: 'OpenAPI only'
 				},
 				tags: [
 					{ name: 'chat', description: 'Chat rooms' },
@@ -339,7 +338,6 @@ describe('AsyncAPI', () => {
 			title: 'Chat',
 			description: 'Development documentation',
 			version: '1.0.0',
-			license: { name: 'MIT' },
 			tags: [{ name: 'chat', description: 'Chat rooms' }]
 		})
 		expect(channels.wsChat).toMatchObject({
@@ -347,6 +345,20 @@ describe('AsyncAPI', () => {
 			description: 'Talk to the room',
 			tags: [{ name: 'chat' }]
 		})
+	})
+
+	it.each([
+		[{ name: 'MIT', identifier: 'MIT' }, { name: 'MIT' }],
+		[
+			{ name: 'MIT', url: 'https://opensource.org/license/mit' },
+			{ name: 'MIT', url: 'https://opensource.org/license/mit' }
+		]
+	])('converts the license %o', async (license, expected) => {
+		const app = create({
+			documentation: { info: { title: 'Chat', version: '1.0.0', license } }
+		}).ws('/chat', { message })
+
+		expect((await asyncapi(app)).info.license).toEqual(expected)
 	})
 
 	it('converts the security schemes and the security of each route', async () => {
