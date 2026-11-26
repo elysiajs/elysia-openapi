@@ -318,41 +318,46 @@ describe('Swagger', () => {
 		expect(resJson.status).toBe(200)
 	})
 
-	it('link the page to the specification at any path, with and without a trailing slash', async () => {
-		for (const provider of ['scalar', 'swagger-ui'] as const)
-			for (const [path, specPath] of [
-				['/openapi'],
-				['/v2/openapi'],
-				['/docs/'],
-				['/'],
-				['docs'],
-				['/openapi', 'spec.json'],
-				['/openapi', 'openapi/spec.json'],
-				['/v2/openapi', '/spec.json']
-			]) {
-				const app = new Elysia().use(
-					openapi({ provider, path, specPath })
-				)
+	it.each(
+		(['scalar', 'swagger-ui'] as const).flatMap((provider) =>
+			[
+				['/openapi', '/openapi', undefined],
+				['/openapi', '/openapi/', undefined],
+				['/v2/openapi', '/v2/openapi', undefined],
+				['/v2/openapi', '/v2/openapi/', undefined],
+				['/docs/', '/docs', undefined],
+				['/docs/', '/docs/', undefined],
+				['/', '/', undefined],
+				['docs', '/docs', undefined],
+				['docs', '/docs/', undefined],
+				['/openapi', '/openapi', 'spec.json'],
+				['/openapi', '/openapi/', 'spec.json'],
+				['/openapi', '/openapi', 'openapi/spec.json'],
+				['/openapi', '/openapi/', 'openapi/spec.json'],
+				['/v2/openapi', '/v2/openapi', '/spec.json'],
+				['/v2/openapi', '/v2/openapi/', '/spec.json']
+			].map((row) => [provider, ...row])
+		)
+	)(
+		'link the %s page to the specification at path %s on page %s with specPath %s',
+		async (provider, path, page, specPath) => {
+			const app = new Elysia().use(openapi({ provider, path, specPath }))
 
-				await app.modules
+			await app.modules
 
-				const base = `/${path.replace(/^\/|\/$/g, '')}`
+			const html = await app.handle(req(page)).then((x) => x.text())
+			const match = html
+				.replaceAll('&quot;', '"')
+				.match(/"url":"([^"]*)"/)
 
-				for (const page of [base, `${base}/`.replace('//', '/')]) {
-					const html = await app
-						.handle(req(page))
-						.then((x) => x.text())
-					const url = html
-						.replaceAll('&quot;', '"')
-						.match(/"url":"([^"]*)"/)![1]
+			expect(match).not.toBeNull()
 
-					const res = await app.handle(
-						new Request(new URL(url, `http://localhost${page}`))
-					)
-					expect(await res.json()).toHaveProperty('openapi')
-				}
-			}
-	})
+			const res = await app.handle(
+				new Request(new URL(match![1], `http://localhost${page}`))
+			)
+			expect(await res.json()).toHaveProperty('openapi')
+		}
+	)
 
 	it('keep the page at one address with strictPath', async () => {
 		const app = new Elysia({ strictPath: true }).use(openapi())
