@@ -105,34 +105,46 @@ describe('AsyncAPI', () => {
 		expect(operations).toEqual({
 			wsChatReceive: {
 				action: 'receive',
-				summary: 'Message from the client',
 				channel: { $ref: '#/channels/wsChat' },
 				messages: [{ $ref: '#/channels/wsChat/messages/clientMessage' }]
 			},
 			wsChatSend: {
 				action: 'send',
-				summary: 'Message from the server',
 				channel: { $ref: '#/channels/wsChat' },
 				messages: [{ $ref: '#/channels/wsChat/messages/serverMessage' }]
 			},
 			wsPlainReceive: {
 				action: 'receive',
-				summary: 'Message from the client',
 				channel: { $ref: '#/channels/wsPlain' }
 			},
 			wsTextSend: {
 				action: 'send',
-				summary: 'Message from the server',
 				channel: { $ref: '#/channels/wsText' },
 				messages: [{ $ref: '#/channels/wsText/messages/serverMessage' }]
 			},
 			wsInReceive: {
 				action: 'receive',
-				summary: 'Message from the client',
 				channel: { $ref: '#/channels/wsIn' },
 				messages: [{ $ref: '#/channels/wsIn/messages/clientMessage' }]
 			}
 		})
+	})
+
+	it('names each message and operation with the title of its schema', async () => {
+		const app = createApp().ws('/chat', {
+			body: t.Object({ say: t.String() }, { title: 'Chat message' }),
+			response: t.Object({ said: t.String() }, { title: 'Chat reply' }),
+			message
+		})
+
+		const document = await getAsyncAPI(app)
+
+		expect(document.channels.wsChat.messages).toMatchObject({
+			clientMessage: { title: 'Chat message' },
+			serverMessage: { title: 'Chat reply' }
+		})
+		expect(document.operations.wsChatReceive.title).toBe('Chat message')
+		expect(document.operations.wsChatSend.title).toBe('Chat reply')
 	})
 
 	it('gives the same message schema with OpenAPI 3.0 and 3.1', async () => {
@@ -285,25 +297,31 @@ describe('AsyncAPI', () => {
 						{ url: 'http://localhost:3000' },
 						{ url: 'https://example.com/' },
 						{ url: '/relative' },
-						{ url: 'wss://{region}.example.com', variables }
+						{ url: 'wss://{region}.example.com', variables },
+						{ url: 'http://example.com', description: 'Insecure' }
 					]
 				}
 			}).ws('/chat', { message })
 		)
 
 		expect(servers).toEqual({
-			server1: {
+			'api.example.com:8443/v1': {
 				host: 'api.example.com:8443',
 				protocol: 'wss',
 				pathname: '/v1',
 				description: 'Live'
 			},
-			server2: { host: 'localhost:3000', protocol: 'ws' },
-			server3: { host: 'example.com', protocol: 'wss' },
-			server5: {
+			'localhost:3000': { host: 'localhost:3000', protocol: 'ws' },
+			'example.com': { host: 'example.com', protocol: 'wss' },
+			'{region}.example.com': {
 				host: '{region}.example.com',
 				protocol: 'wss',
 				variables
+			},
+			'example.com2': {
+				host: 'example.com',
+				protocol: 'ws',
+				description: 'Insecure'
 			}
 		})
 	})

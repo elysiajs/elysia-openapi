@@ -46,7 +46,7 @@ const parseServer = ({
 const getPayload = (body?: object) =>
 	Object.values(
 		(body as OpenAPIV3.ResponseObject | undefined)?.content ?? {}
-	)[0]?.schema
+	)[0]?.schema as OpenAPIV3.SchemaObject | undefined
 
 const getBinding = (
 	parameters: OpenAPIV3.ParameterObject[],
@@ -101,14 +101,15 @@ export function createAsyncAPISchema(
 		const addOperation = (
 			action: 'send' | 'receive',
 			sender: 'client' | 'server',
-			payload: unknown
+			payload?: OpenAPIV3.SchemaObject
 		) => {
 			const message = `${sender}Message`
-			if (payload) messages[message] = { payload }
+			const title = payload?.title
+			if (payload) messages[message] = { title, payload }
 
 			operations[id + capitalize(action)] = {
 				action,
-				summary: `Message from the ${sender}`,
+				title,
 				channel: { $ref: `#/channels/${id}` },
 				messages: payload
 					? [{ $ref: `#/channels/${id}/messages/${message}` }]
@@ -165,10 +166,17 @@ export function createAsyncAPISchema(
 
 	collectSchemas(channels)
 
-	const asyncServers: Record<string, unknown> = {}
-	for (let i = 0; i < servers.length; i++) {
-		const server = parseServer(servers[i])
-		if (server) asyncServers[`server${i + 1}`] = server
+	const asyncServers: Record<string, unknown> = Object.create(null)
+	for (const x of servers) {
+		const server = parseServer(x)
+		if (!server) continue
+
+		const name = server.host + (server.pathname ?? '')
+
+		let key = name
+		for (let i = 2; key in asyncServers; i++) key = name + i
+
+		asyncServers[key] = server
 	}
 
 	return {
