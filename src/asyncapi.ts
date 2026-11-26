@@ -7,37 +7,31 @@ type Documentation = NonNullable<ElysiaOpenAPIConfig['documentation']> & {
 	info: OpenAPIV3_1.InfoObject
 }
 
-const toSecurityScheme = (
+const serverRegex = /^(\w+):\/\/([^/]+)(\/.*)?$/
+const pathParamRegex = /{([^}]+)}/g
+const schemaRefRegex = /"#\/components\/schemas\/([^"]+)"/g
+
+const mapSecurityScheme = (
 	scheme: OpenAPIV3_1.ReferenceObject | OpenAPIV3_1.SecuritySchemeObject
 ) => {
 	if ('$ref' in scheme) return scheme
 
-	switch (scheme.type) {
-		case 'apiKey':
-			return { ...scheme, type: 'httpApiKey' }
+	if (scheme.type === 'apiKey') return { ...scheme, type: 'httpApiKey' }
+	if (scheme.type !== 'oauth2') return scheme
 
-		case 'oauth2':
-			return {
-				...scheme,
-				flows: Object.fromEntries(
-					Object.entries(scheme.flows).map(
-						([name, { scopes, ...flow }]) => [
-							name,
-							{ ...flow, availableScopes: scopes }
-						]
-					)
-				)
-			}
+	const flows: Record<string, unknown> = {}
+	for (const [name, { scopes, ...flow }] of Object.entries(scheme.flows))
+		flows[name] = { ...flow, availableScopes: scopes }
 
-		default:
-			return scheme
-	}
+	return { ...scheme, flows }
 }
 
-const toServer = ({ url, description, variables }: OpenAPIV3.ServerObject) => {
-	const [, protocol, host, pathname] =
-		url.match(/^(\w+):\/\/([^/]+)(\/.*)?$/) ?? []
-
+const parseServer = ({
+	url,
+	description,
+	variables
+}: OpenAPIV3.ServerObject) => {
+	const [, protocol, host, pathname] = url.match(serverRegex) ?? []
 	if (!host) return
 
 	return {
@@ -49,12 +43,31 @@ const toServer = ({ url, description, variables }: OpenAPIV3.ServerObject) => {
 	}
 }
 
-const toPayload = (body?: object) =>
+const getPayload = (body?: object) =>
 	Object.values(
 		(body as OpenAPIV3.ResponseObject | undefined)?.content ?? {}
 	)[0]?.schema
 
-export const toAsyncAPISchema = (
+const getBinding = (
+	parameters: OpenAPIV3.ParameterObject[],
+	location: 'query' | 'header'
+) => {
+	const properties: Record<string, unknown> = {}
+	const required: string[] = []
+
+	for (const parameter of parameters) {
+		if (parameter.in !== location) continue
+
+		properties[parameter.name] = parameter.schema
+		if (parameter.required) required.push(parameter.name)
+	}
+
+	if (!Object.keys(properties).length) return
+
+	return { type: 'object', properties, required }
+}
+
+export function createAsyncAPISchema(
 	{ paths, components: { schemas } }: ReturnType<typeof toOpenAPISchema>,
 	{
 		info: { summary, license, ...info },
@@ -63,12 +76,12 @@ export const toAsyncAPISchema = (
 		security,
 		components
 	}: Documentation
-) => {
-	const securitySchemes = Object.fromEntries(
-		Object.entries(components?.securitySchemes ?? {}).map(
-			([name, scheme]) => [name, toSecurityScheme(scheme)]
-		)
-	)
+) {
+	const securitySchemes: Record<string, unknown> = Object.create(null)
+	for (const [name, scheme] of Object.entries(
+		components?.securitySchemes ?? {}
+	))
+		securitySchemes[name] = mapSecurityScheme(scheme)
 
 	const channels: Record<string, unknown> = Object.create(null)
 	const operations: Record<string, unknown> = {}
@@ -84,19 +97,6 @@ export const toAsyncAPISchema = (
 
 		const parameters = (ws.parameters ?? []) as OpenAPIV3.ParameterObject[]
 		const messages: Record<string, unknown> = {}
-
-		const toBinding = (location: 'query' | 'header') => {
-			const fields = parameters.filter((x) => x.in === location)
-			if (!fields.length) return
-
-			return {
-				type: 'object',
-				properties: Object.fromEntries(
-					fields.map((x) => [x.name, x.schema])
-				),
-				required: fields.filter((x) => x.required).map((x) => x.name)
-			}
-		}
 
 		const addOperation = (
 			action: 'send' | 'receive',
@@ -122,15 +122,24 @@ export const toAsyncAPISchema = (
 			}
 		}
 
-		const body = toPayload(ws.requestBody)
-		const response = toPayload(ws.responses?.['200'])
+		const body = getPayload(ws.requestBody)
+		const response = getPayload(ws.responses?.['200'])
 
 		// Scalar hides a channel without an operation
 		if (body || !response) addOperation('receive', 'client', body)
 		if (response) addOperation('send', 'server', response)
 
-		const query = toBinding('query')
-		const headers = toBinding('header')
+		const channelParameters: Record<string, unknown> = {}
+		for (const [, name] of address.matchAll(pathParamRegex))
+			channelParameters[name] = {
+				description: (
+					parameters.find((x) => x.in === 'path' && x.name === name)
+						?.schema as OpenAPIV3.SchemaObject | undefined
+				)?.description
+			}
+
+		const query = getBinding(parameters, 'query')
+		const headers = getBinding(parameters, 'header')
 
 		channels[id] = {
 			address,
@@ -138,34 +147,29 @@ export const toAsyncAPISchema = (
 			description: ws.description,
 			tags: ws.tags?.map((name) => ({ name })),
 			messages,
-			parameters: Object.fromEntries(
-				[...address.matchAll(/{([^}]+)}/g)].map(([, name]) => [
-					name,
-					{
-						description: (
-							parameters.find(
-								(x) => x.in === 'path' && x.name === name
-							)?.schema as OpenAPIV3.SchemaObject
-						)?.description
-					}
-				])
-			),
+			parameters: channelParameters,
 			bindings: query || headers ? { ws: { query, headers } } : undefined
 		}
 	}
 
 	const allSchemas = { ...schemas, ...components?.schemas }
 	const usedSchemas: Record<string, unknown> = Object.create(null)
+
 	const collectSchemas = (value: unknown) => {
-		for (const [, name] of JSON.stringify(value).matchAll(
-			/"#\/components\/schemas\/([^"]+)"/g
-		))
+		for (const [, name] of JSON.stringify(value).matchAll(schemaRefRegex))
 			if (name in allSchemas && !(name in usedSchemas)) {
 				usedSchemas[name] = allSchemas[name]
 				collectSchemas(allSchemas[name])
 			}
 	}
+
 	collectSchemas(channels)
+
+	const asyncServers: Record<string, unknown> = {}
+	for (let i = 0; i < servers.length; i++) {
+		const server = parseServer(servers[i])
+		if (server) asyncServers[`server${i + 1}`] = server
+	}
 
 	return {
 		asyncapi: '3.0.0',
@@ -178,12 +182,7 @@ export const toAsyncAPISchema = (
 				)
 			)
 		},
-		servers: Object.fromEntries(
-			servers.flatMap((server, index) => {
-				const converted = toServer(server)
-				return converted ? [[`server${index + 1}`, converted]] : []
-			})
-		),
+		servers: asyncServers,
 		channels,
 		operations,
 		components: { schemas: usedSchemas, securitySchemes }

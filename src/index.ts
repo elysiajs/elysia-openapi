@@ -5,7 +5,7 @@ import { SwaggerUIRender } from './swagger'
 import { ScalarRender } from './scalar'
 
 import { getLoosePath, toOpenAPISchema } from './openapi'
-import { toAsyncAPISchema } from './asyncapi'
+import { createAsyncAPISchema } from './asyncapi'
 
 import type { ApiReferenceConfiguration } from '@scalar/types'
 import type { ElysiaOpenAPIConfig, OpenAPIVersion } from './types'
@@ -28,7 +28,7 @@ const normalizeOpenAPIVersion = (version: string): OpenAPIVersion => {
 	return DEFAULT_OPENAPI_VERSION
 }
 
-const relativeTo = (page: string, target: string) => {
+const getRelativePath = (page: string, target: string) => {
 	const from = page.replace(/^\//, '').split('/').slice(0, -1)
 	const to = target.replace(/^\//, '').split('/')
 
@@ -98,7 +98,7 @@ export const openapi = <
 
 	let totalRoutes = 0
 	let cachedSchema: OpenAPIDocument | undefined
-	let cachedAsyncAPI: ReturnType<typeof toAsyncAPISchema> | undefined
+	let cachedAsyncAPI: ReturnType<typeof createAsyncAPISchema> | undefined
 
 	const toFullSchema = ({
 		paths,
@@ -139,7 +139,7 @@ export const openapi = <
 
 		if (provider === null) return host.use(plugin)
 
-		const generate = () => {
+		const generateSchema = () => {
 			if (totalRoutes === host.routes.length && cachedSchema)
 				return cachedSchema
 
@@ -154,7 +154,7 @@ export const openapi = <
 			)
 
 			if (asyncapi) {
-				cachedAsyncAPI = toAsyncAPISchema(
+				cachedAsyncAPI = createAsyncAPISchema(
 					// AsyncAPI reads JSON Schema, which has no `nullable`
 					effectiveOpenAPIVersion.startsWith('3.0.')
 						? toOpenAPISchema(
@@ -176,11 +176,13 @@ export const openapi = <
 			return toFullSchema(schema)
 		}
 
-		const page = (address: string) =>
-			new Response(
+		const page = (address: string) => {
+			const url = getRelativePath(address, specPath)
+
+			return new Response(
 				provider === 'swagger-ui'
 					? SwaggerUIRender(info, {
-							url: relativeTo(address, specPath),
+							url,
 							dom_id: '#swagger-ui',
 							version: 'latest',
 							autoDarkMode: true,
@@ -192,29 +194,25 @@ export const openapi = <
 								...(asyncapi && !embedSpec && !scalar?.url
 									? {
 											sources: [
-												{
-													title: 'HTTP',
-													url: relativeTo(
-														address,
-														specPath
-													)
-												},
+												{ title: 'HTTP', url },
 												{
 													title: 'WebSocket',
-													url: relativeTo(
+													url: getRelativePath(
 														address,
 														asyncapiPath
 													)
 												}
 											]
 										}
-									: { url: relativeTo(address, specPath) }),
+									: { url }),
 								version: 'latest',
 								cdn: `https://cdn.jsdelivr.net/npm/@scalar/api-reference@${scalar?.version ?? 'latest'}/dist/browser/standalone.min.js`,
 								...(scalar as ApiReferenceConfiguration),
 								_integration: 'elysiajs'
 							},
-							embedSpec ? JSON.stringify(generate()) : undefined
+							embedSpec
+								? JSON.stringify(generateSchema())
+								: undefined
 						),
 				{
 					headers: {
@@ -222,6 +220,7 @@ export const openapi = <
 					}
 				}
 			)
+		}
 
 		if (host['~config']?.strictPath !== true) {
 			const loosePath = getLoosePath(path)
@@ -263,7 +262,7 @@ export const openapi = <
 					}
 				},
 				function openAPISchema(): OpenAPIDocument {
-					return generate()
+					return generateSchema()
 				}
 			)
 
@@ -276,7 +275,7 @@ export const openapi = <
 					}
 				},
 				function asyncAPISchema() {
-					generate()
+					generateSchema()
 
 					return cachedAsyncAPI
 				}

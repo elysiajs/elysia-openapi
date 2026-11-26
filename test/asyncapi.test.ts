@@ -8,22 +8,22 @@ import type { ElysiaOpenAPIConfig } from '../src/types'
 
 import { describe, expect, it } from 'bun:test'
 
-const create = (config?: ElysiaOpenAPIConfig<true, string>) =>
+const createApp = (config?: ElysiaOpenAPIConfig<true, string>) =>
 	new Elysia().use(websocket()).use(openapi({ asyncapi: true, ...config }))
 
-const get = async (app: AnyElysia, path: string) => {
+const request = async (app: AnyElysia, path: string) => {
 	await app.modules
 
 	return app.handle(new Request(`http://localhost${path}`))
 }
 
-const json = (app: AnyElysia, path: string) =>
-	get(app, path).then((x) => x.json())
+const getJson = (app: AnyElysia, path: string) =>
+	request(app, path).then((x) => x.json())
 
 const parser = new Parser()
 
-const asyncapi = async (app: AnyElysia, path = '/openapi/asyncapi/json') => {
-	const document = await json(app, path)
+const getAsyncAPI = async (app: AnyElysia, path = '/openapi/asyncapi/json') => {
+	const document = await getJson(app, path)
 	const { diagnostics } = await parser.parse(JSON.stringify(document))
 
 	expect(
@@ -33,8 +33,8 @@ const asyncapi = async (app: AnyElysia, path = '/openapi/asyncapi/json') => {
 	return document
 }
 
-const scalarConfig = async (app: AnyElysia, path = '/openapi') => {
-	const html = await get(app, path).then((x) => x.text())
+const getScalarConfig = async (app: AnyElysia, path = '/openapi') => {
+	const html = await request(app, path).then((x) => x.text())
 	const match = html.match(/data-configuration='([^']+)'/)
 
 	expect(match).not.toBeNull()
@@ -51,33 +51,33 @@ describe('AsyncAPI', () => {
 			.use(openapi())
 			.ws('/chat', { message })
 
-		expect((await get(app, '/openapi/asyncapi/json')).status).toBe(404)
+		expect((await request(app, '/openapi/asyncapi/json')).status).toBe(404)
 
-		const document = await json(app, '/openapi/json')
+		const document = await getJson(app, '/openapi/json')
 		expect(document.paths['/chat'].ws).toBeDefined()
 
-		const config = await scalarConfig(app)
+		const config = await getScalarConfig(app)
 		expect(config.url).toBe('openapi/json')
 		expect(config.sources).toBeUndefined()
 	})
 
 	it('moves WebSocket routes from the OpenAPI document to the AsyncAPI document', async () => {
-		const app = create()
+		const app = createApp()
 			.get('/chat', () => 'hi')
 			.ws('/chat', { message })
 			.ws('/ticker', { message })
 
-		const document = await asyncapi(app)
+		const document = await getAsyncAPI(app)
 		expect(Object.keys(document.channels)).toEqual(['wsChat', 'wsTicker'])
 
-		const rest = await json(app, '/openapi/json')
+		const rest = await getJson(app, '/openapi/json')
 		expect(Object.keys(rest.paths)).toEqual(['/chat'])
 		expect(Object.keys(rest.paths['/chat'])).toEqual(['get'])
 		await SwaggerParser.validate(rest)
 	})
 
 	it('documents the message of each direction as an operation', async () => {
-		const app = create()
+		const app = createApp()
 			.ws('/chat', {
 				body: t.Object({ say: t.String() }),
 				response: t.Object({ said: t.String() }),
@@ -87,7 +87,7 @@ describe('AsyncAPI', () => {
 			.ws('/text', { response: t.String(), message })
 			.ws('/in', { body: t.Object({ say: t.String() }), message })
 
-		const { channels, operations } = await asyncapi(app)
+		const { channels, operations } = await getAsyncAPI(app)
 
 		expect(channels.wsChat.messages).toMatchObject({
 			clientMessage: { payload: { properties: { say: {} } } },
@@ -136,28 +136,28 @@ describe('AsyncAPI', () => {
 	})
 
 	it('gives the same message schema with OpenAPI 3.0 and 3.1', async () => {
-		const payloadOf = async (openapiVersion: string) => {
-			const app = create({ openapiVersion }).ws('/chat', {
+		const getPayload = async (openapiVersion: string) => {
+			const app = createApp({ openapiVersion }).ws('/chat', {
 				response: t.Object({ text: t.Nullable(t.String()) }),
 				message
 			})
 
-			expect((await json(app, '/openapi/json')).openapi).toBe(
+			expect((await getJson(app, '/openapi/json')).openapi).toBe(
 				openapiVersion
 			)
 
-			return (await asyncapi(app)).channels.wsChat.messages.serverMessage
-				.payload
+			return (await getAsyncAPI(app)).channels.wsChat.messages
+				.serverMessage.payload
 		}
 
-		const v31 = await payloadOf('3.1.0')
+		const v31 = await getPayload('3.1.0')
 
-		expect(await payloadOf('3.0.3')).toEqual(v31)
+		expect(await getPayload('3.0.3')).toEqual(v31)
 		expect(v31.properties.text.type).toEqual(['string', 'null'])
 	})
 
 	it('turns path parameters into channel parameters', async () => {
-		const app = create().ws('/user/:name/:tab?', {
+		const app = createApp().ws('/user/:name/:tab?', {
 			params: t.Object({
 				name: t.String({ description: 'Name of the user' }),
 				tab: t.Optional(t.String())
@@ -165,7 +165,7 @@ describe('AsyncAPI', () => {
 			message
 		})
 
-		const { channels } = await asyncapi(app)
+		const { channels } = await getAsyncAPI(app)
 
 		expect(channels.wsUserByNameByTab.address).toBe('/user/{name}/{tab}')
 		expect(channels.wsUserByNameByTab.parameters).toEqual({
@@ -179,7 +179,7 @@ describe('AsyncAPI', () => {
 	})
 
 	it('documents query and headers as WebSocket bindings', async () => {
-		const app = create().ws('/chat', {
+		const app = createApp().ws('/chat', {
 			query: t.Object({
 				token: t.String(),
 				since: t.Optional(t.String())
@@ -188,7 +188,7 @@ describe('AsyncAPI', () => {
 			message
 		})
 
-		const { channels } = await asyncapi(app)
+		const { channels } = await getAsyncAPI(app)
 
 		expect(channels.wsChat.bindings.ws).toEqual({
 			query: {
@@ -209,7 +209,7 @@ describe('AsyncAPI', () => {
 
 	it('adds the schemas that a message references to components', async () => {
 		const manual = { type: 'object' } as const
-		const app = create({
+		const app = createApp({
 			documentation: { components: { schemas: { Manual: manual } } }
 		})
 			.model({
@@ -226,7 +226,7 @@ describe('AsyncAPI', () => {
 			})
 			.ws('/proto', { response: 'toString', message })
 
-		const { channels, components } = await asyncapi(app)
+		const { channels, components } = await getAsyncAPI(app)
 
 		expect(channels.wsChat.messages.serverMessage.payload).toEqual({
 			$ref: '#/components/schemas/Message'
@@ -245,14 +245,14 @@ describe('AsyncAPI', () => {
 	})
 
 	it('keeps each route when operation ids collide', async () => {
-		const app = create()
+		const app = createApp()
 			.ws('/a-b', { response: t.String(), message })
 			.ws('/A-b', { response: t.String(), message })
 			.ws('/c', { detail: { operationId: 'my/chat' }, message })
 			.ws('/d', { detail: { operationId: 'my/chat' }, message })
 			.ws('/e', { detail: { operationId: 'toString' }, message })
 
-		const { channels, operations } = await asyncapi(app)
+		const { channels, operations } = await getAsyncAPI(app)
 
 		expect(
 			Object.entries(channels).map(([id, channel]: any) => [
@@ -274,8 +274,8 @@ describe('AsyncAPI', () => {
 
 	it('converts each server URL', async () => {
 		const variables = { region: { default: 'eu' } }
-		const { servers } = await asyncapi(
-			create({
+		const { servers } = await getAsyncAPI(
+			createApp({
 				documentation: {
 					servers: [
 						{
@@ -309,7 +309,7 @@ describe('AsyncAPI', () => {
 	})
 
 	it('follows the documentation info and the tags of WebSocket routes', async () => {
-		const app = create({
+		const app = createApp({
 			documentation: {
 				info: {
 					title: 'Chat',
@@ -332,7 +332,7 @@ describe('AsyncAPI', () => {
 				message
 			})
 
-		const { info, channels } = await asyncapi(app)
+		const { info, channels } = await getAsyncAPI(app)
 
 		expect(info).toEqual({
 			title: 'Chat',
@@ -354,15 +354,17 @@ describe('AsyncAPI', () => {
 			{ name: 'MIT', url: 'https://opensource.org/license/mit' }
 		]
 	])('converts the license %o', async (license, expected) => {
-		const app = create({
-			documentation: { info: { title: 'Chat', version: '1.0.0', license } }
+		const app = createApp({
+			documentation: {
+				info: { title: 'Chat', version: '1.0.0', license }
+			}
 		}).ws('/chat', { message })
 
-		expect((await asyncapi(app)).info.license).toEqual(expected)
+		expect((await getAsyncAPI(app)).info.license).toEqual(expected)
 	})
 
 	it('converts the security schemes and the security of each route', async () => {
-		const app = create({
+		const app = createApp({
 			documentation: {
 				security: [{ session: [] }],
 				components: {
@@ -394,7 +396,7 @@ describe('AsyncAPI', () => {
 			})
 			.ws('/public', { detail: { security: [] }, message })
 
-		const { operations, components } = await asyncapi(app)
+		const { operations, components } = await getAsyncAPI(app)
 
 		expect(operations.wsChatReceive.security).toEqual([
 			{ $ref: '#/components/securitySchemes/session' }
@@ -421,7 +423,7 @@ describe('AsyncAPI', () => {
 	it.each(['3.0.3', '3.1.0'])(
 		'follows hide and exclude with OpenAPI %s',
 		async (openapiVersion) => {
-			const app = create({
+			const app = createApp({
 				openapiVersion,
 				exclude: { paths: ['/excluded'], tags: ['internal'] }
 			})
@@ -430,21 +432,27 @@ describe('AsyncAPI', () => {
 				.ws('/excluded', { message })
 				.ws('/internal', { detail: { tags: ['internal'] }, message })
 
-			expect(Object.keys((await asyncapi(app)).channels)).toEqual([
+			expect(Object.keys((await getAsyncAPI(app)).channels)).toEqual([
 				'wsShown'
 			])
 
-			const noWebSocket = create({
+			const noWebSocket = createApp({
 				openapiVersion,
 				exclude: { methods: ['WS'] }
 			}).ws('/chat', { message })
 
-			expect((await asyncapi(noWebSocket)).channels).toEqual({})
+			expect((await getAsyncAPI(noWebSocket)).channels).toEqual({})
 		}
 	)
 
 	it.each([
-		['/openapi', '/openapi', 'openapi/json', 'openapi/asyncapi/json', undefined],
+		[
+			'/openapi',
+			'/openapi',
+			'openapi/json',
+			'openapi/asyncapi/json',
+			undefined
+		],
 		['/openapi', '/openapi/', 'json', 'asyncapi/json', undefined],
 		['/docs/v1', '/docs/v1', 'v1/json', 'v1/asyncapi/json', undefined],
 		['/docs/v1', '/docs/v1/', 'json', 'asyncapi/json', undefined],
@@ -454,9 +462,9 @@ describe('AsyncAPI', () => {
 	])(
 		'shows both documents in Scalar, OpenAPI first, at path %s on page %s',
 		async (path, page, http, webSocket, specPath) => {
-			const app = create({ path, specPath }).ws('/chat', { message })
+			const app = createApp({ path, specPath }).ws('/chat', { message })
 
-			const config = await scalarConfig(app, page)
+			const config = await getScalarConfig(app, page)
 
 			expect(config.url).toBeUndefined()
 			expect(config.sources).toEqual([
@@ -464,40 +472,46 @@ describe('AsyncAPI', () => {
 				{ title: 'WebSocket', url: webSocket }
 			])
 
-			const at = (url: string) =>
+			const getPathname = (url: string) =>
 				new URL(url, `http://localhost${page}`).pathname
 
-			expect((await json(app, at(http))).openapi).toBeDefined()
-			expect((await asyncapi(app, at(webSocket))).channels.wsChat).toBeDefined()
+			expect(
+				(await getJson(app, getPathname(http))).openapi
+			).toBeDefined()
+			expect(
+				(await getAsyncAPI(app, getPathname(webSocket))).channels.wsChat
+			).toBeDefined()
 		}
 	)
 
 	it('keeps the Scalar documents that the user sets', async () => {
-		const configOf = (config: ElysiaOpenAPIConfig<true, string>) =>
-			scalarConfig(create(config).ws('/chat', { message }))
+		const getConfig = (config: ElysiaOpenAPIConfig<true, string>) =>
+			getScalarConfig(createApp(config).ws('/chat', { message }))
 
-		const withUrl = await configOf({ scalar: { url: '/my.json' } })
+		const withUrl = await getConfig({ scalar: { url: '/my.json' } })
 		expect(withUrl.url).toBe('/my.json')
 		expect(withUrl.sources).toBeUndefined()
 
 		const sources = [{ url: '/my.json' }]
-		const withSources = await configOf({ scalar: { sources } as object })
+		const withSources = await getConfig({ scalar: { sources } as object })
 		expect(withSources.url).toBeUndefined()
 		expect(withSources.sources).toEqual(sources)
 
-		const embedded = await configOf({ embedSpec: true })
+		const embedded = await getConfig({ embedSpec: true })
 		expect(embedded.sources).toBeUndefined()
 		expect(JSON.parse(embedded.content).paths).toEqual({})
 	})
 
 	it('shows the OpenAPI document only in Swagger UI', async () => {
-		const app = create({ provider: 'swagger-ui' }).ws('/chat', { message })
+		const app = createApp({ provider: 'swagger-ui' }).ws('/chat', {
+			message
+		})
 
-		const html = await get(app, '/openapi').then((x) => x.text())
+		const html = await request(app, '/openapi').then((x) => x.text())
 		expect(html).toContain('"url":"openapi/json"')
 		expect(html).not.toContain('asyncapi')
 
-		expect((await asyncapi(app)).channels.wsChat).toBeDefined()
-		expect((await json(app, '/openapi/json')).paths).toEqual({})
+		expect((await getAsyncAPI(app)).channels.wsChat).toBeDefined()
+		expect((await getJson(app, '/openapi/json')).paths).toEqual({})
 	})
 })
