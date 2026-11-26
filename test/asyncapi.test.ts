@@ -170,7 +170,7 @@ describe('AsyncAPI', () => {
 		})
 		expect(channels.wsChat.messages.serverMessage.title).toBeUndefined()
 		expect(operations.wsChatReceive.title).toBe('Chat message')
-		expect(operations.wsChatSend.title).toBeUndefined()
+		expect(operations.wsChatSend.title).toBe('ChatReply')
 	})
 
 	it('gives the same message schema with OpenAPI 3.0 and 3.1', async () => {

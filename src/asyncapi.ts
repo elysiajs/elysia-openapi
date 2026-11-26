@@ -117,7 +117,7 @@ export function createAsyncAPISchema(
 
 			operations[id + capitalize(action)] = {
 				action,
-				title,
+				title: title ?? name,
 				channel: { $ref: `#/channels/${id}` },
 				messages: payload
 					? [{ $ref: `#/channels/${id}/messages/${message}` }]
