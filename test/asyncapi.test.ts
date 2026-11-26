@@ -4,7 +4,7 @@ import type { AnyElysia } from 'elysia/base'
 import SwaggerParser from '@apidevtools/swagger-parser'
 import { Parser, DiagnosticSeverity } from '@asyncapi/parser'
 import { openapi } from '../src'
-import type { ElysiaOpenAPIConfig } from '../src/types'
+import type { ElysiaOpenAPIConfig, OpenAPIVersion } from '../src/types'
 
 import { describe, expect, it } from 'bun:test'
 
@@ -148,7 +148,7 @@ describe('AsyncAPI', () => {
 	})
 
 	it('gives the same message schema with OpenAPI 3.0 and 3.1', async () => {
-		const getPayload = async (openapiVersion: string) => {
+		const getPayload = async (openapiVersion: OpenAPIVersion) => {
 			const app = createApp({ openapiVersion }).ws('/chat', {
 				response: t.Object({ text: t.Nullable(t.String()) }),
 				message
@@ -438,7 +438,7 @@ describe('AsyncAPI', () => {
 		})
 	})
 
-	it.each(['3.0.3', '3.1.0'])(
+	it.each(['3.0.3', '3.1.0'] as const)(
 		'follows hide and exclude with OpenAPI %s',
 		async (openapiVersion) => {
 			const app = createApp({
