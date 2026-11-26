@@ -93,10 +93,6 @@ export const openapi = <
 		...documentation.info
 	}
 
-	const tags = !exclude?.tags
-		? documentation.tags
-		: documentation.tags?.filter((tag) => !exclude.tags?.includes(tag.name))
-
 	const effectiveOpenAPIVersion = normalizeOpenAPIVersion(openapiVersion)
 	const asyncapiPath = `${path.replace(/\/$/, '')}/asyncapi/json`
 
@@ -111,7 +107,11 @@ export const openapi = <
 		return (cachedSchema = {
 			...documentation,
 			openapi: effectiveOpenAPIVersion,
-			tags,
+			tags: !exclude?.tags
+				? documentation.tags
+				: documentation.tags?.filter(
+						(tag) => !exclude.tags?.includes(tag.name)
+					),
 			info: {
 				title: 'Elysia Documentation',
 				description: 'Development documentation',
@@ -164,11 +164,7 @@ export const openapi = <
 								mapJsonSchema
 							)
 						: schema,
-					{
-						...documentation,
-						info,
-						tags
-					}
+					{ ...documentation, info }
 				)
 
 				for (const [path, item] of Object.entries(schema.paths)) {
