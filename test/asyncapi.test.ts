@@ -147,6 +147,32 @@ describe('AsyncAPI', () => {
 		expect(document.operations.wsChatSend.title).toBe('Chat reply')
 	})
 
+	it('names a message that uses a model by the model and its title', async () => {
+		const app = createApp()
+			.model({
+				ChatMessage: t.Object(
+					{ say: t.String() },
+					{ title: 'Chat message' }
+				),
+				ChatReply: t.Object({ said: t.String() })
+			})
+			.ws('/chat', {
+				body: 'ChatMessage',
+				response: 'ChatReply',
+				message
+			})
+
+		const { channels, operations } = await getAsyncAPI(app)
+
+		expect(channels.wsChat.messages).toMatchObject({
+			clientMessage: { name: 'ChatMessage', title: 'Chat message' },
+			serverMessage: { name: 'ChatReply' }
+		})
+		expect(channels.wsChat.messages.serverMessage.title).toBeUndefined()
+		expect(operations.wsChatReceive.title).toBe('Chat message')
+		expect(operations.wsChatSend.title).toBeUndefined()
+	})
+
 	it('gives the same message schema with OpenAPI 3.0 and 3.1', async () => {
 		const getPayload = async (openapiVersion: OpenAPIVersion) => {
 			const app = createApp({ openapiVersion }).ws('/chat', {
@@ -305,20 +331,31 @@ describe('AsyncAPI', () => {
 		)
 
 		expect(servers).toEqual({
-			'api.example.com:8443/v1': {
+			'api-example-com-8443-v1': {
+				title: 'api.example.com:8443/v1',
 				host: 'api.example.com:8443',
 				protocol: 'wss',
 				pathname: '/v1',
 				description: 'Live'
 			},
-			'localhost:3000': { host: 'localhost:3000', protocol: 'ws' },
-			'example.com': { host: 'example.com', protocol: 'wss' },
-			'{region}.example.com': {
+			'localhost-3000': {
+				title: 'localhost:3000',
+				host: 'localhost:3000',
+				protocol: 'ws'
+			},
+			'example-com': {
+				title: 'example.com',
+				host: 'example.com',
+				protocol: 'wss'
+			},
+			'region-example-com': {
+				title: '{region}.example.com',
 				host: '{region}.example.com',
 				protocol: 'wss',
 				variables
 			},
-			'example.com2': {
+			'example-com-2': {
+				title: 'example.com',
 				host: 'example.com',
 				protocol: 'ws',
 				description: 'Insecure'

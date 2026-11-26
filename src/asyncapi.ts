@@ -10,6 +10,7 @@ type Documentation = NonNullable<ElysiaOpenAPIConfig['documentation']> & {
 const serverRegex = /^(\w+):\/\/([^/]+)(\/.*)?$/
 const pathParamRegex = /{([^}]+)}/g
 const schemaRefRegex = /"#\/components\/schemas\/([^"]+)"/g
+const modelRefRegex = /^#\/components\/schemas\/(.+)$/
 
 const mapSecurityScheme = (
 	scheme: OpenAPIV3_1.ReferenceObject | OpenAPIV3_1.SecuritySchemeObject
@@ -46,7 +47,8 @@ const parseServer = ({
 const getPayload = (body?: object) =>
 	Object.values(
 		(body as OpenAPIV3.ResponseObject | undefined)?.content ?? {}
-	)[0]?.schema as OpenAPIV3.SchemaObject | undefined
+	)[0]?.schema as
+		OpenAPIV3.SchemaObject | OpenAPIV3.ReferenceObject | undefined
 
 const getBinding = (
 	parameters: OpenAPIV3.ParameterObject[],
@@ -83,6 +85,7 @@ export function createAsyncAPISchema(
 	))
 		securitySchemes[name] = mapSecurityScheme(scheme)
 
+	const allSchemas = { ...schemas, ...components?.schemas }
 	const channels: Record<string, unknown> = Object.create(null)
 	const operations: Record<string, unknown> = {}
 
@@ -101,11 +104,16 @@ export function createAsyncAPISchema(
 		const addOperation = (
 			action: 'send' | 'receive',
 			sender: 'client' | 'server',
-			payload?: OpenAPIV3.SchemaObject
+			payload?: OpenAPIV3.SchemaObject | OpenAPIV3.ReferenceObject
 		) => {
 			const message = `${sender}Message`
-			const title = payload?.title
-			if (payload) messages[message] = { title, payload }
+			const name =
+				payload && '$ref' in payload
+					? payload.$ref.match(modelRefRegex)?.[1]
+					: undefined
+			const schema = name ? allSchemas[name] : payload
+			const title = schema && 'title' in schema ? schema.title : undefined
+			if (payload) messages[message] = { name, title, payload }
 
 			operations[id + capitalize(action)] = {
 				action,
@@ -153,7 +161,6 @@ export function createAsyncAPISchema(
 		}
 	}
 
-	const allSchemas = { ...schemas, ...components?.schemas }
 	const usedSchemas: Record<string, unknown> = Object.create(null)
 
 	const collectSchemas = (value: unknown) => {
@@ -171,12 +178,13 @@ export function createAsyncAPISchema(
 		const server = parseServer(x)
 		if (!server) continue
 
-		const name = server.host + (server.pathname ?? '')
+		const title = server.host + (server.pathname ?? '')
+		const name = title.replace(/[^\w-]+/g, '-').replace(/^-|-$/g, '')
 
 		let key = name
-		for (let i = 2; key in asyncServers; i++) key = name + i
+		for (let i = 2; key in asyncServers; i++) key = `${name}-${i}`
 
-		asyncServers[key] = server
+		asyncServers[key] = { title, ...server }
 	}
 
 	return {
