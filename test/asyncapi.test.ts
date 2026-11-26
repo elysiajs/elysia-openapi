@@ -215,7 +215,8 @@ describe('AsyncAPI', () => {
 			.model({
 				Author: t.Object({ name: t.String() }),
 				Message: t.Object({ author: t.Ref('Author') }),
-				Unused: t.Object({ id: t.String() })
+				Unused: t.Object({ id: t.String() }),
+				toString: t.Object({ a: t.String() })
 			})
 			.get('/unused', { response: 'Unused' }, () => ({ id: '1' }))
 			.ws('/chat', { response: 'Message', message })
@@ -223,6 +224,7 @@ describe('AsyncAPI', () => {
 				response: t.Ref('#/components/schemas/Manual'),
 				message
 			})
+			.ws('/proto', { response: 'toString', message })
 
 		const { channels, components } = await asyncapi(app)
 
@@ -232,12 +234,14 @@ describe('AsyncAPI', () => {
 		expect(Object.keys(components.schemas)).toEqual([
 			'Message',
 			'Author',
-			'Manual'
+			'Manual',
+			'toString'
 		])
 		expect(components.schemas.Message.properties.author.$ref).toBe(
 			'#/components/schemas/Author'
 		)
 		expect(components.schemas.Manual).toEqual(manual)
+		expect(components.schemas.toString.properties.a.type).toBe('string')
 	})
 
 	it('keeps each route when operation ids collide', async () => {
@@ -376,6 +380,7 @@ describe('AsyncAPI', () => {
 				detail: { security: [{ bearer: [] }, { unknown: [] }] },
 				message
 			})
+			.ws('/public', { detail: { security: [] }, message })
 
 		const { operations, components } = await asyncapi(app)
 
@@ -385,6 +390,7 @@ describe('AsyncAPI', () => {
 		expect(operations.wsAdminReceive.security).toEqual([
 			{ $ref: '#/components/securitySchemes/bearer' }
 		])
+		expect(operations.wsPublicReceive.security).toEqual([])
 		expect(components.securitySchemes).toEqual({
 			session: { type: 'httpApiKey', in: 'cookie', name: 'session' },
 			bearer: { type: 'http', scheme: 'bearer' },
@@ -430,6 +436,7 @@ describe('AsyncAPI', () => {
 		['/openapi', '/openapi/', 'json', 'asyncapi/json', undefined],
 		['/docs/v1', '/docs/v1', 'v1/json', 'v1/asyncapi/json', undefined],
 		['/docs/v1', '/docs/v1/', 'json', 'asyncapi/json', undefined],
+		['docs', '/docs/', 'json', 'asyncapi/json', undefined],
 		['/docs/', '/docs', 'docs/json', 'docs/asyncapi/json', undefined],
 		['/docs/', '/docs/', '../spec.json', 'asyncapi/json', 'spec.json']
 	])(
