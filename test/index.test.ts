@@ -318,6 +318,56 @@ describe('Swagger', () => {
 		expect(resJson.status).toBe(200)
 	})
 
+	it.each(
+		(['scalar', 'swagger-ui'] as const).flatMap((provider) =>
+			[
+				['/openapi', '/openapi', undefined],
+				['/openapi', '/openapi/', undefined],
+				['/v2/openapi', '/v2/openapi', undefined],
+				['/v2/openapi', '/v2/openapi/', undefined],
+				['/docs/', '/docs', undefined],
+				['/docs/', '/docs/', undefined],
+				['/', '/', undefined],
+				['docs', '/docs', undefined],
+				['docs', '/docs/', undefined],
+				['/openapi', '/openapi', 'spec.json'],
+				['/openapi', '/openapi/', 'spec.json'],
+				['/openapi', '/openapi', 'openapi/spec.json'],
+				['/openapi', '/openapi/', 'openapi/spec.json'],
+				['/v2/openapi', '/v2/openapi', '/spec.json'],
+				['/v2/openapi', '/v2/openapi/', '/spec.json']
+			].map((row) => [provider, ...row])
+		)
+	)(
+		'link the %s page to the specification at path %s on page %s with specPath %s',
+		async (provider, path, page, specPath) => {
+			const app = new Elysia().use(openapi({ provider, path, specPath }))
+
+			await app.modules
+
+			const html = await app.handle(req(page)).then((x) => x.text())
+			const match = html
+				.replaceAll('&quot;', '"')
+				.match(/"url":"([^"]*)"/)
+
+			expect(match).not.toBeNull()
+
+			const res = await app.handle(
+				new Request(new URL(match![1], `http://localhost${page}`))
+			)
+			expect(await res.json()).toHaveProperty('openapi')
+		}
+	)
+
+	it('keep the page at one address with strictPath', async () => {
+		const app = new Elysia({ strictPath: true }).use(openapi())
+
+		await app.modules
+
+		expect((await app.handle(req('/openapi'))).status).toBe(200)
+		expect((await app.handle(req('/openapi/'))).status).toBe(404)
+	})
+
 	it('Swagger UI options', async () => {
 		const app = new Elysia().use(
 			openapi({

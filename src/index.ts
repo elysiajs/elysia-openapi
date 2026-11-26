@@ -4,7 +4,8 @@ import type { AnyElysia } from 'elysia/base'
 import { SwaggerUIRender } from './swagger'
 import { ScalarRender } from './scalar'
 
-import { toOpenAPISchema } from './openapi'
+import { getLoosePath, toOpenAPISchema } from './openapi'
+import { createAsyncAPISchema } from './asyncapi'
 
 import type { ApiReferenceConfiguration } from '@scalar/types'
 import type { ElysiaOpenAPIConfig, OpenAPIVersion } from './types'
@@ -25,6 +26,16 @@ const normalizeOpenAPIVersion = (version: string): OpenAPIVersion => {
 	)
 
 	return DEFAULT_OPENAPI_VERSION
+}
+
+const getRelativePath = (page: string, target: string) => {
+	const from = page.replace(/^\//, '').split('/').slice(0, -1)
+	const to = target.replace(/^\//, '').split('/')
+
+	let shared = 0
+	while (shared < from.length && from[shared] === to[shared]) shared++
+
+	return '../'.repeat(from.length - shared) + to.slice(shared).join('/')
 }
 
 function isCloudflareWorker() {
@@ -62,7 +73,7 @@ export const openapi = <
 	enabled = true as Enabled,
 	path = '/openapi' as Path,
 	provider = 'scalar',
-	specPath = `${path}/json`,
+	specPath = `${path.replace(/\/$/, '')}/json`,
 	openapiVersion = DEFAULT_OPENAPI_VERSION,
 	documentation = {},
 	exclude,
@@ -70,7 +81,8 @@ export const openapi = <
 	scalar,
 	references,
 	mapJsonSchema,
-	embedSpec
+	embedSpec,
+	asyncapi
 }: ElysiaOpenAPIConfig<Enabled, Path> = {}) => {
 	if (!enabled) return new Elysia({ name: '@elysiajs/openapi' })
 
@@ -81,11 +93,12 @@ export const openapi = <
 		...documentation.info
 	}
 
-	const relativePath = specPath.startsWith('/') ? specPath.slice(1) : specPath
 	const effectiveOpenAPIVersion = normalizeOpenAPIVersion(openapiVersion)
+	const asyncapiPath = `${path.replace(/\/$/, '')}/asyncapi/json`
 
 	let totalRoutes = 0
 	let cachedSchema: OpenAPIDocument | undefined
+	let cachedAsyncAPI: ReturnType<typeof createAsyncAPISchema> | undefined
 
 	const toFullSchema = ({
 		paths,
@@ -126,11 +139,50 @@ export const openapi = <
 
 		if (provider === null) return host.use(plugin)
 
-		const page = () =>
-			new Response(
+		const generateSchema = () => {
+			if (totalRoutes === host.routes.length && cachedSchema)
+				return cachedSchema
+
+			totalRoutes = host.routes.length
+
+			const schema = toOpenAPISchema(
+				host,
+				exclude,
+				references,
+				mapJsonSchema,
+				effectiveOpenAPIVersion
+			)
+
+			if (asyncapi) {
+				cachedAsyncAPI = createAsyncAPISchema(
+					// AsyncAPI reads JSON Schema, which has no `nullable`
+					effectiveOpenAPIVersion.startsWith('3.0.')
+						? toOpenAPISchema(
+								host,
+								exclude,
+								references,
+								mapJsonSchema
+							)
+						: schema,
+					{ ...documentation, info }
+				)
+
+				for (const [path, item] of Object.entries(schema.paths)) {
+					delete (item as { ws?: unknown }).ws
+					if (!Object.keys(item!).length) delete schema.paths[path]
+				}
+			}
+
+			return toFullSchema(schema)
+		}
+
+		const page = (address: string) => {
+			const url = getRelativePath(address, specPath)
+
+			return new Response(
 				provider === 'swagger-ui'
 					? SwaggerUIRender(info, {
-							url: relativePath,
+							url,
 							dom_id: '#swagger-ui',
 							version: 'latest',
 							autoDarkMode: true,
@@ -139,26 +191,27 @@ export const openapi = <
 					: ScalarRender(
 							info,
 							{
-								url: relativePath,
+								...(asyncapi && !embedSpec && !scalar?.url
+									? {
+											sources: [
+												{ title: 'HTTP', url },
+												{
+													title: 'WebSocket',
+													url: getRelativePath(
+														address,
+														asyncapiPath
+													)
+												}
+											]
+										}
+									: { url }),
 								version: 'latest',
 								cdn: `https://cdn.jsdelivr.net/npm/@scalar/api-reference@${scalar?.version ?? 'latest'}/dist/browser/standalone.min.js`,
 								...(scalar as ApiReferenceConfiguration),
 								_integration: 'elysiajs'
 							},
 							embedSpec
-								? JSON.stringify(
-										totalRoutes === host.routes.length
-											? cachedSchema
-											: toFullSchema(
-													toOpenAPISchema(
-														host,
-														exclude,
-														references,
-														mapJsonSchema,
-														effectiveOpenAPIVersion
-													)
-												)
-									)
+								? JSON.stringify(generateSchema())
 								: undefined
 						),
 				{
@@ -167,6 +220,23 @@ export const openapi = <
 					}
 				}
 			)
+		}
+
+		if (host['~config']?.strictPath !== true) {
+			const loosePath = getLoosePath(path)
+
+			plugin.get(
+				loosePath,
+				{
+					detail: {
+						hide: true
+					}
+				},
+				embedSpec || isCloudflareWorker()
+					? () => page(loosePath)
+					: page(loosePath)
+			)
+		}
 
 		plugin
 			.get(
@@ -176,7 +246,9 @@ export const openapi = <
 						hide: true
 					}
 				},
-				embedSpec || isCloudflareWorker() ? page : page()
+				embedSpec || isCloudflareWorker()
+					? () => page(path)
+					: page(path)
 			)
 			.get(
 				specPath,
@@ -190,20 +262,22 @@ export const openapi = <
 					}
 				},
 				function openAPISchema(): OpenAPIDocument {
-					if (totalRoutes === host.routes.length && cachedSchema)
-						return cachedSchema
+					return generateSchema()
+				}
+			)
 
-					totalRoutes = host.routes.length
+		if (asyncapi)
+			plugin.get(
+				asyncapiPath,
+				{
+					detail: {
+						hide: true
+					}
+				},
+				function asyncAPISchema() {
+					generateSchema()
 
-					return toFullSchema(
-						toOpenAPISchema(
-							host,
-							exclude,
-							references,
-							mapJsonSchema,
-							effectiveOpenAPIVersion
-						)
-					)
+					return cachedAsyncAPI
 				}
 			)
 

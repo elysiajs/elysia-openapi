@@ -55,6 +55,34 @@ Then go to `http://localhost:3000/openapi`.
 
 # config
 
+## asyncapi
+
+@default false
+
+Document WebSocket routes in an [AsyncAPI 3.0.0](https://www.asyncapi.com/docs/reference/specification/v3.0.0) document at `${path}/asyncapi/json`, and remove them from the OpenAPI document
+
+```typescript
+import { Elysia, t } from 'elysia'
+import { websocket } from 'elysia/websocket'
+import { openapi } from '@elysia/openapi'
+
+new Elysia()
+	.use(websocket())
+	.use(openapi({ asyncapi: true }))
+	.ws('/chat/:room', {
+		body: t.Object({ text: t.String() }),
+		response: t.Object({ from: t.String(), text: t.String() }),
+		message(ws, { text }) {
+			ws.send({ from: ws.id, text })
+		}
+	})
+	.listen(3000)
+```
+
+`body` is the message from the client, `response` is the message from the server. `params`, `query`, `headers` and `detail` work as for an HTTP route, `cookie` is not documented
+
+Scalar shows both documents unless `embedSpec` is set, Swagger UI shows the OpenAPI document only
+
 ## enabled
 
 @default true
